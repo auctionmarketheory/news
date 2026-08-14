@@ -203,7 +203,9 @@ void fetchWeather() {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;\n"
         "try:\n"
-        " r=urllib.request.urlopen('%s',timeout=8);"
+        " ctx=__import__('ssl')._create_unverified_context();"
+        " req=urllib.request.Request('%s',headers={'User-Agent':'Mozilla/5.0'});"
+        " r=urllib.request.urlopen(req,timeout=8,context=ctx);"
         " d=json.loads(r.read())['current'];"
         " wmap={0:'Clear',1:'Mostly Clear',2:'Partly Cloudy',3:'Overcast',45:'Fog',48:'Rime Fog',51:'Light Drizzle',53:'Drizzle',55:'Heavy Drizzle',61:'Light Rain',63:'Rain',65:'Heavy Rain',71:'Light Snow',73:'Snow',75:'Heavy Snow',95:'Thunderstorm'};"
         " wc=d.get('weather_code',0);"
@@ -265,7 +267,9 @@ void fetchNews() {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,re,sys;\n"
         "try:\n"
-        " r=urllib.request.urlopen('%s',timeout=8).read().decode('utf-8');\n"
+        " ctx=__import__('ssl')._create_unverified_context();"
+        " req=urllib.request.Request('%s',headers={'User-Agent':'Mozilla/5.0'});"
+        " r=urllib.request.urlopen(req,timeout=8,context=ctx).read().decode('utf-8');\n"
         " titles=re.findall(r'<title><\\!\\[CDATA\\[(.*?)\\]\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);\n"
         " for t in titles[1:6]: print(t);\n"
         "except Exception as e: print('ERR', e)\"", URL_NEWS);
