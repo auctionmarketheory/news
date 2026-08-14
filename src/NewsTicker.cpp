@@ -25,7 +25,12 @@ struct WeatherData {
     int  humidity;
     char condition[64];
     int  wind_kmh;
+    int  weather_code;
     bool valid;
+};
+
+struct Candle {
+    double open, high, low, close;
 };
 
 struct GoldData {
@@ -34,6 +39,8 @@ struct GoldData {
     double changePct;
     double dayHigh;
     double dayLow;
+    Candle chartPoints[50];
+    int    numPoints;
     bool   valid;
 };
 
@@ -55,6 +62,7 @@ struct App {
     FocusTarget focus = FocusTarget::WEATHER;
     bool        modalOpen = false;
     float       modalAnimT = 0.0f;
+    int         modalSelectedIndex = 0; // D-Pad selection in Modal
 } app;
 
 inline SDL_Color toSDLColor(RGBA c) { return {c.r, c.g, c.b, c.a}; }
@@ -182,6 +190,32 @@ CustomFont*   fontTitle = NULL;
 CustomFont*   fontNormal = NULL;
 CustomFont*   fontSmall = NULL;
 CustomFont*   fontTicker = NULL;
+CustomFont*   fontWeatherIcon = NULL;
+
+// ─── Weather Icon Map ─────────────────────────────────────
+std::string getWeatherIconUTF8(int code) {
+    if (code == 0) return "\xef\x80\x8d"; // f00d (wi-day-sunny)
+    if (code >= 1 && code <= 3) return "\xef\x80\x93"; // f013 (wi-cloudy)
+    if (code == 45 || code == 48) return "\xef\x80\x94"; // f014 (wi-fog)
+    if ((code >= 51 && code <= 65) || (code >= 80 && code <= 82)) return "\xef\x80\x99"; // f019 (wi-rain)
+    if (code >= 71 && code <= 77) return "\xef\x80\x9b"; // f01b (wi-snow)
+    if (code >= 95) return "\xef\x80\x9e"; // f01e (wi-thunderstorm)
+    return "\xef\x80\x8d"; 
+}
+
+std::string getWeatherCondVN(int code) {
+    if (code == 0) return "Quang mây";
+    if (code == 1) return "Chủ yếu quang";
+    if (code == 2) return "Có mây một phần";
+    if (code == 3) return "Nhiều mây";
+    if (code == 45 || code == 48) return "Sương mù";
+    if (code >= 51 && code <= 55) return "Mưa phùn";
+    if (code >= 61 && code <= 65) return "Mưa rào";
+    if (code >= 71 && code <= 77) return "Tuyết";
+    if (code >= 80 && code <= 82) return "Mưa lớn";
+    if (code >= 95) return "Có giông bão";
+    return "Không rõ";
+}
 
 // ─── Data Fetching (Python via popen) ─────────────────────
 
@@ -194,10 +228,8 @@ void fetchWeather() {
         " req=urllib.request.Request('%s',headers={'User-Agent':'Mozilla/5.0'});"
         " r=urllib.request.urlopen(req,timeout=8,context=ctx);"
         " d=json.loads(r.read())['current'];"
-        " wmap={0:'Clear',1:'Mostly Clear',2:'Partly Cloudy',3:'Overcast',45:'Fog',48:'Rime Fog',51:'Light Drizzle',53:'Drizzle',55:'Heavy Drizzle',61:'Light Rain',63:'Rain',65:'Heavy Rain',71:'Light Snow',73:'Snow',75:'Heavy Snow',95:'Thunderstorm'};"
         " wc=d.get('weather_code',0);"
-        " vi=wmap.get(wc, 'Unknown');"
-        " print(f'Hanoi|{int(d[\\\"temperature_2m\\\"])}|{int(d[\\\"relative_humidity_2m\\\"])}|{vi}|{int(d[\\\"wind_speed_10m\\\"])}');\n"
+        " print(f'Tp.HCM|{int(d[\\\"temperature_2m\\\"])}|{int(d[\\\"relative_humidity_2m\\\"])}|{wc}|{int(d[\\\"wind_speed_10m\\\"])}');\n"
         "except Exception as e: print('ERR', e)\"", URL_WEATHER);
     FILE* fp = popen(cmd, "r");
     if (fp) {
@@ -208,7 +240,11 @@ void fetchWeather() {
                 if (p) strncpy(app.weather.city, p, sizeof(app.weather.city)-1);
                 p = strtok(NULL, "|"); if (p) app.weather.temp_c = atoi(p);
                 p = strtok(NULL, "|"); if (p) app.weather.humidity = atoi(p);
-                p = strtok(NULL, "|"); if (p) { strncpy(app.weather.condition, p, sizeof(app.weather.condition)-1); app.weather.condition[strcspn(app.weather.condition, "\n")] = 0; }
+                p = strtok(NULL, "|"); if (p) {
+                    app.weather.weather_code = atoi(p);
+                    std::string cond = getWeatherCondVN(app.weather.weather_code);
+                    strncpy(app.weather.condition, cond.c_str(), sizeof(app.weather.condition)-1);
+                }
                 p = strtok(NULL, "|"); if (p) app.weather.wind_kmh = atoi(p);
                 app.weather.valid = true;
             }
@@ -219,22 +255,33 @@ void fetchWeather() {
 
 void fetchGold() {
     app.gold.valid = false;
+    app.gold.numPoints = 0;
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;\n"
+    // We request interval=15m and fetch the last 50 candles
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys,ssl;\n"
         "try:\n"
-        " ctx=__import__('ssl')._create_unverified_context();"
-        " r=urllib.request.urlopen(urllib.request.Request('%s',headers={'User-Agent':'Mozilla/5.0'}),timeout=8,context=ctx);"
-        " d=json.loads(r.read())['chart']['result'][0]['meta'];"
-        " p=d['regularMarketPrice'];"
-        " pc=d.get('regularMarketChangePercent',0);"
-        " ph=d.get('regularMarketDayHigh',0);"
-        " pl=d.get('regularMarketDayLow',0);"
-        " ch=p-d.get('chartPreviousClose',p);"
-        " print(f'{p}|{ch}|{pc}|{ph}|{pl}');\n"
-        "except Exception as e: print('ERR', e)\"", URL_GOLD);
+        " ctx=ssl._create_unverified_context();\n"
+        " req=urllib.request.Request('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=15m&range=1d',headers={'User-Agent':'Mozilla/5.0'});\n"
+        " r=urllib.request.urlopen(req,timeout=8,context=ctx);\n"
+        " d=json.loads(r.read())['chart']['result'][0];\n"
+        " meta=d['meta'];\n"
+        " p=meta['regularMarketPrice'];\n"
+        " pc=meta.get('regularMarketChangePercent',0);\n"
+        " ph=meta.get('regularMarketDayHigh',0);\n"
+        " pl=meta.get('regularMarketDayLow',0);\n"
+        " ch=p-meta.get('chartPreviousClose',p);\n"
+        " quote=d['indicators']['quote'][0];\n"
+        " pts=[];\n"
+        " if quote.get('close'):\n"
+        "  for i in range(-min(50,len(quote['close'])), 0):\n"
+        "   if quote['open'][i] is not None and quote['close'][i] is not None:\n"
+        "    pts.append(f\\\"{quote['open'][i]:.2f}:{quote['high'][i]:.2f}:{quote['low'][i]:.2f}:{quote['close'][i]:.2f}\\\");\n"
+        " print(f'{p}|{ch}|{pc}|{ph}|{pl}|' + ','.join(pts));\n"
+        "except Exception as e: print('ERR', e)\"");
+        
     FILE* fp = popen(cmd, "r");
     if (fp) {
-        char buffer[256];
+        char buffer[4096];
         if (fgets(buffer, sizeof(buffer), fp) != NULL) {
             if (strncmp(buffer, "ERR", 3) != 0) {
                 char* p = strtok(buffer, "|"); if(p) app.gold.price = atof(p);
@@ -242,6 +289,17 @@ void fetchGold() {
                 p = strtok(NULL, "|"); if(p) app.gold.changePct = atof(p);
                 p = strtok(NULL, "|"); if(p) app.gold.dayHigh = atof(p);
                 p = strtok(NULL, "|"); if(p) app.gold.dayLow = atof(p);
+                p = strtok(NULL, "|"); 
+                if (p) {
+                    char* pt = strtok(p, ",");
+                    while (pt && app.gold.numPoints < 50) {
+                        Candle c;
+                        if (sscanf(pt, "%lf:%lf:%lf:%lf", &c.open, &c.high, &c.low, &c.close) == 4) {
+                            app.gold.chartPoints[app.gold.numPoints++] = c;
+                        }
+                        pt = strtok(NULL, ",");
+                    }
+                }
                 app.gold.valid = true;
             }
         }
@@ -440,11 +498,13 @@ void drawModal(SDL_Renderer* r) {
     SDL_Rect divider { scaled.x, scaled.y + 34, scaled.w, 1 };
     fillRect(r, divider, Palette::BORDER_DIM);
 
-    fontTitle->draw(r, scaled.x + 16, scaled.y + 8, "LATEST NEWS (BBC)", Palette::TEXT_PRIMARY);
+    fontTitle->draw(r, scaled.x + 16, scaled.y + 8, "TIN TỨC CHI TIẾT (BBC)", Palette::TEXT_PRIMARY);
 
     int yOffset = scaled.y + 50;
     for (int i = 0; i < app.newsCount; i++) {
-        fontNormal->draw(r, scaled.x + 16, yOffset, std::string("> ") + app.news[i].headline, Palette::TEXT_PRIMARY);
+        RGBA textColor = (i == app.modalSelectedIndex) ? Palette::NEON_CYAN : Palette::TEXT_DIM;
+        std::string prefix = (i == app.modalSelectedIndex) ? "> " : "  ";
+        fontNormal->draw(r, scaled.x + 16, yOffset, prefix + app.news[i].headline, textColor);
         yOffset += 45;
         if (yOffset > scaled.y + scaled.h - 40) break;
     }
@@ -454,7 +514,7 @@ void drawModal(SDL_Renderer* r) {
 void fetchAllData() {
     app.state = STATE_LOADING;
     fillRect(renderer, SDL_Rect{0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, Palette::BG_VOID);
-    fontTitle->draw(renderer, SCREEN_WIDTH/2 - 80, SCREEN_HEIGHT/2, "Fetching Intel...", Palette::NEON_CYAN);
+    fontTitle->draw(renderer, SCREEN_WIDTH/2 - 120, SCREEN_HEIGHT/2, "ĐANG TẢI DỮ LIỆU...", Palette::NEON_CYAN);
     SDL_RenderPresent(renderer);
     
     fetchWeather();
@@ -467,7 +527,7 @@ void fetchAllData() {
             tickerText += "[ " + std::string(app.news[i].source) + " ] " + std::string(app.news[i].headline) + "   ///   ";
         }
     } else {
-        tickerText = "[ NO SIGNAL DETECTED ]";
+        tickerText = "[ KHÔNG CÓ TÍN HIỆU ]";
     }
     globalTicker.build(renderer, fontTicker, tickerText, Palette::TEXT_PRIMARY);
     
@@ -485,16 +545,16 @@ void renderDisplay() {
     // 2. Header
     fillRect(renderer, SDL_Rect{0, 0, SCREEN_WIDTH, 28}, Palette::BORDER_HEADER);
     SDL_RenderDrawLine(renderer, 0, 28, SCREEN_WIDTH, 28);
-    fontNormal->draw(renderer, 12, 4, "[SYS] DASHBOARD_V2", Palette::NEON_CYAN);
+    fontNormal->draw(renderer, 12, 4, "[SYS] NewsTicker v3", Palette::NEON_CYAN);
     
     time_t t = time(NULL); struct tm tm = *localtime(&t); char timeStr[64];
     sprintf(timeStr, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
     fontNormal->draw(renderer, SCREEN_WIDTH - 90, 4, timeStr, Palette::TEXT_PRIMARY);
     
     // 3. Setup Panels
-    Panel weatherP = { {12, 44, 300, 360}, "[ENVIR_MONITOR] WEATHER", Palette::NEON_CYAN, false, false };
-    Panel marketP  = { {328, 44, 300, 360}, "[MKT_TRACKER] GC=F", Palette::NEON_AMBER, false, false };
-    Panel tickerP  = { {12, 416, 616, 32}, "[STREAM] GLOBAL NEWS", Palette::NEON_MAGENTA, false, false };
+    Panel weatherP = { {12, 44, 300, 360}, "THỜI TIẾT Tp.HCM", Palette::NEON_CYAN, false, false };
+    Panel marketP  = { {328, 44, 300, 360}, "THỊ TRƯỜNG (XAUUSD)", Palette::NEON_AMBER, false, false };
+    Panel tickerP  = { {12, 416, 616, 32}, "", Palette::NEON_MAGENTA, false, false };
     
     weatherP.focused = (app.focus == FocusTarget::WEATHER);
     weatherP.siblingDimmed = (app.focus == FocusTarget::MARKET);
@@ -502,52 +562,121 @@ void renderDisplay() {
     marketP.siblingDimmed = (app.focus == FocusTarget::WEATHER);
     tickerP.focused = (app.focus == FocusTarget::TICKER);
     
-    // 4. Draw Panels & Content
+    // 4. Draw Weather
     weatherP.draw(renderer, fontTitle);
     if (app.weather.valid) {
-        fontLarge->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 40, std::to_string(app.weather.temp_c) + " C", Palette::TEXT_PRIMARY);
-        fontTitle->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 90, app.weather.condition, Palette::NEON_CYAN);
-        fontNormal->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 130, "HUMIDITY: " + std::to_string(app.weather.humidity) + "%", Palette::TEXT_SECONDARY);
-        fontNormal->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 160, "WIND: " + std::to_string(app.weather.wind_kmh) + " KM/H", Palette::TEXT_SECONDARY);
-        fontTitle->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 220, "LOC: " + std::string(app.weather.city), Palette::TEXT_PRIMARY);
+        RGBA themeColor = weatherP.focused ? Palette::NEON_CYAN : Palette::TEXT_DIM;
+        // Icon khổng lồ
+        fontWeatherIcon->draw(renderer, weatherP.bounds.x + 30, weatherP.bounds.y + 60, getWeatherIconUTF8(app.weather.weather_code), themeColor);
+        
+        fontLarge->draw(renderer, weatherP.bounds.x + 160, weatherP.bounds.y + 60, std::to_string(app.weather.temp_c) + " C", Palette::TEXT_PRIMARY);
+        fontTitle->draw(renderer, weatherP.bounds.x + 160, weatherP.bounds.y + 110, app.weather.condition, Palette::NEON_CYAN);
+        
+        // Thêm 2 đường line trang trí
+        fillRect(renderer, SDL_Rect{weatherP.bounds.x + 30, weatherP.bounds.y + 190, weatherP.bounds.w - 60, 1}, Palette::BORDER_DIM);
+        
+        fontNormal->draw(renderer, weatherP.bounds.x + 30, weatherP.bounds.y + 210, "ĐỘ ẨM:", Palette::TEXT_SECONDARY);
+        fontTitle->draw(renderer, weatherP.bounds.x + 150, weatherP.bounds.y + 205, std::to_string(app.weather.humidity) + "%", Palette::TEXT_PRIMARY);
+        
+        fontNormal->draw(renderer, weatherP.bounds.x + 30, weatherP.bounds.y + 250, "SỨC GIÓ:", Palette::TEXT_SECONDARY);
+        fontTitle->draw(renderer, weatherP.bounds.x + 150, weatherP.bounds.y + 245, std::to_string(app.weather.wind_kmh) + " KM/H", Palette::TEXT_PRIMARY);
     }
     
+    // 5. Draw Market (Candlestick Chart)
     marketP.draw(renderer, fontTitle);
     if (app.gold.valid) {
         char priceStr[64]; sprintf(priceStr, "$%.2f", app.gold.price);
         RGBA pColor = app.gold.change >= 0 ? Palette::NEON_GREEN : Palette::ALERT_RED;
-        fontLarge->draw(renderer, marketP.bounds.x + 16, marketP.bounds.y + 40, priceStr, pColor);
+        fontLarge->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 40, priceStr, pColor);
         
         char changeStr[64]; sprintf(changeStr, "%s %+.2f (%+.2f%%)", app.gold.change >= 0 ? "+" : "", app.gold.change, app.gold.changePct);
-        fontTitle->draw(renderer, marketP.bounds.x + 16, marketP.bounds.y + 90, changeStr, pColor);
+        fontNormal->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 85, changeStr, pColor);
         
-        char hlStr[64]; sprintf(hlStr, "HIGH: %.2f  LOW: %.2f", app.gold.dayHigh, app.gold.dayLow);
-        fontNormal->draw(renderer, marketP.bounds.x + 16, marketP.bounds.y + 140, hlStr, Palette::TEXT_SECONDARY);
+        char hlStr[64]; sprintf(hlStr, "CAO: %.2f  THẤP: %.2f", app.gold.dayHigh, app.gold.dayLow);
+        fontSmall->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 110, hlStr, Palette::TEXT_SECONDARY);
         
-        // Sparkline
-        fillRect(renderer, SDL_Rect{marketP.bounds.x + 16, marketP.bounds.y + 200, 268, 2}, Palette::BORDER_DIM);
-        if (app.gold.dayHigh > app.gold.dayLow) {
-            double ratio = (app.gold.price - app.gold.dayLow) / (app.gold.dayHigh - app.gold.dayLow);
-            int barW = (int)(268 * ratio);
-            fillRect(renderer, SDL_Rect{marketP.bounds.x + 16, marketP.bounds.y + 199, barW, 4}, pColor);
+        // Vẽ Candlestick
+        if (app.gold.numPoints > 0) {
+            int chartX = marketP.bounds.x + 20;
+            int chartY = marketP.bounds.y + 140;
+            int chartW = marketP.bounds.w - 40;
+            int chartH = 200;
+            
+            fillRect(renderer, SDL_Rect{chartX, chartY, chartW, chartH}, Palette::BG_VOID); // Backing
+            strokeRect(renderer, SDL_Rect{chartX, chartY, chartW, chartH}, Palette::BORDER_DIM, 1);
+            
+            // Tìm min max cục bộ của nến
+            double locMin = app.gold.chartPoints[0].low;
+            double locMax = app.gold.chartPoints[0].high;
+            for (int i=0; i<app.gold.numPoints; i++) {
+                if (app.gold.chartPoints[i].low < locMin) locMin = app.gold.chartPoints[i].low;
+                if (app.gold.chartPoints[i].high > locMax) locMax = app.gold.chartPoints[i].high;
+            }
+            if (locMax - locMin < 0.1) { locMax += 1; locMin -= 1; }
+            
+            float candleSpacing = (float)chartW / app.gold.numPoints;
+            float candleW = candleSpacing * 0.7f;
+            if (candleW < 1.0f) candleW = 1.0f;
+            
+            for (int i=0; i<app.gold.numPoints; i++) {
+                Candle c = app.gold.chartPoints[i];
+                RGBA cColor = (c.close >= c.open) ? Palette::NEON_GREEN : Palette::ALERT_RED;
+                setColor(renderer, cColor);
+                
+                int cx = chartX + (int)(i * candleSpacing) + (int)(candleSpacing/2);
+                int cy_high = chartY + chartH - (int)((c.high - locMin) / (locMax - locMin) * chartH);
+                int cy_low  = chartY + chartH - (int)((c.low - locMin) / (locMax - locMin) * chartH);
+                SDL_RenderDrawLine(renderer, cx, cy_high, cx, cy_low); // Râu nến
+                
+                int cy_open = chartY + chartH - (int)((c.open - locMin) / (locMax - locMin) * chartH);
+                int cy_close = chartY + chartH - (int)((c.close - locMin) / (locMax - locMin) * chartH);
+                int bodyY = std::min(cy_open, cy_close);
+                int bodyH = std::abs(cy_open - cy_close);
+                if (bodyH == 0) bodyH = 1;
+                
+                SDL_Rect body = { cx - (int)(candleW/2), bodyY, (int)candleW, bodyH };
+                SDL_RenderFillRect(renderer, &body);
+            }
         }
     }
     
-    tickerP.draw(renderer, fontNormal); // Has title inside the render skeleton? Actually Ticker has no inner title in spec, just bounds. 
-    // We'll draw bounds and then clip content
-    globalTicker.draw(renderer, SDL_Rect{tickerP.bounds.x + 4, tickerP.bounds.y + 2, tickerP.bounds.w - 8, tickerP.bounds.h - 4});
+    // 6. Draw Ticker (Clipped)
+    tickerP.draw(renderer, fontTitle);
     
-    // Footer
+    // Tiêu đề Ticker cố định (Không cuộn)
+    RGBA tColor = tickerP.focused ? Palette::TEXT_PRIMARY : Palette::TEXT_SECONDARY;
+    fontNormal->draw(renderer, tickerP.bounds.x + 12, tickerP.bounds.y + 4, "[STREAM] TIN TỨC", tColor);
+    
+    // Khối clip để chữ không đè vào tiêu đề (Tiêu đề dài khoảng 180px)
+    int clipX = tickerP.bounds.x + 190;
+    SDL_Rect clipRect = {clipX, tickerP.bounds.y + 2, tickerP.bounds.w - (clipX - tickerP.bounds.x) - 8, tickerP.bounds.h - 4};
+    globalTicker.draw(renderer, clipRect);
+    
+    // Vạch ngăn cách Ticker
+    fillRect(renderer, SDL_Rect{clipX - 10, tickerP.bounds.y + 4, 2, tickerP.bounds.h - 8}, Palette::BORDER_DIM);
+
+    // 7. Footer
     fillRect(renderer, SDL_Rect{0, 456, 640, 24}, Palette::BORDER_HEADER);
     SDL_RenderDrawLine(renderer, 0, 456, 640, 456);
-    std::string prompt = (app.focus == FocusTarget::TICKER) ? "[A] READ ARTICLE  [B] EXIT" : "[A] REFRESH  [B] EXIT";
+    std::string prompt = (app.focus == FocusTarget::TICKER) ? "[A] XEM DANH SÁCH TIN  [B] THOÁT" : "[A] TẢI LẠI  [B] THOÁT";
     fontNormal->draw(renderer, 12, 460, prompt, Palette::TEXT_SECONDARY);
     
-    // Modal
+    // 8. Modal
     drawModal(renderer);
 }
 
 void handleDpad(SDL_Keycode key) {
+    if (app.modalOpen) {
+        if (key == SDLK_UP) {
+            app.modalSelectedIndex--;
+            if (app.modalSelectedIndex < 0) app.modalSelectedIndex = 0;
+        } else if (key == SDLK_DOWN) {
+            app.modalSelectedIndex++;
+            if (app.modalSelectedIndex >= app.newsCount) app.modalSelectedIndex = app.newsCount - 1;
+        }
+        return;
+    }
+
     switch (app.focus) {
         case FocusTarget::WEATHER:
             if (key == SDLK_RIGHT) app.focus = FocusTarget::MARKET;
@@ -559,12 +688,10 @@ void handleDpad(SDL_Keycode key) {
             break;
         case FocusTarget::TICKER:
             if (key == SDLK_UP) app.focus = FocusTarget::WEATHER;
-            else if (key == SDLK_a || key == SDLK_RETURN) app.modalOpen = true;
+            else if (key == SDLK_a || key == SDLK_RETURN) {
+                if (app.newsCount > 0) app.modalOpen = true;
+            }
             break;
-    }
-    if (app.modalOpen && (key == SDLK_b || key == SDLK_ESCAPE)) {
-        app.modalOpen = false;
-        app.modalAnimT = 0.0f;
     }
 }
 
@@ -588,6 +715,7 @@ int main(int argc, char* args[]) {
     fontNormal = new CustomFont(); fontNormal->load(renderer, FONT_NAME, FONT_NORMAL);
     fontSmall  = new CustomFont(); fontSmall->load(renderer, FONT_NAME, FONT_SMALL);
     fontTicker = new CustomFont(); fontTicker->load(renderer, FONT_NAME, FONT_TICKER);
+    fontWeatherIcon = new CustomFont(); fontWeatherIcon->load(renderer, "res/weathericons.ttf", 80.0f);
 
     if (SDL_NumJoysticks() > 0) SDL_JoystickOpen(0);
 
@@ -605,8 +733,13 @@ int main(int argc, char* args[]) {
             if (e.type == SDL_QUIT) app.quit = true;
             
             if (e.type == SDL_KEYDOWN) {
-                if (!app.modalOpen && e.key.keysym.sym == SDLK_RETURN) fetchAllData();
+                if (!app.modalOpen && e.key.keysym.sym == SDLK_RETURN && app.focus != FocusTarget::TICKER) fetchAllData();
                 else handleDpad(e.key.keysym.sym);
+                
+                if (app.modalOpen && (e.key.keysym.sym == SDLK_b || e.key.keysym.sym == SDLK_ESCAPE)) {
+                    app.modalOpen = false;
+                    app.modalAnimT = 0.0f;
+                }
             }
             if (e.type == SDL_JOYBUTTONDOWN) {
                 if (e.jbutton.button == BTN_B) {
@@ -614,8 +747,11 @@ int main(int argc, char* args[]) {
                     else app.quit = true;
                 }
                 if (e.jbutton.button == BTN_A) {
-                    if (app.focus == FocusTarget::TICKER) app.modalOpen = true;
-                    else fetchAllData();
+                    if (app.modalOpen) {
+                        // Modal A does nothing for now
+                    } else if (app.focus == FocusTarget::TICKER) {
+                        if (app.newsCount > 0) app.modalOpen = true;
+                    } else fetchAllData();
                 }
             }
             if (e.type == SDL_JOYHATMOTION) {
@@ -653,6 +789,7 @@ int main(int argc, char* args[]) {
     if (fontNormal) { fontNormal->freeCache(); delete fontNormal; }
     if (fontSmall) { fontSmall->freeCache(); delete fontSmall; }
     if (fontTicker) { fontTicker->freeCache(); delete fontTicker; }
+    if (fontWeatherIcon) { fontWeatherIcon->freeCache(); delete fontWeatherIcon; }
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
