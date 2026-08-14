@@ -46,18 +46,23 @@
 #define BUTTON_A(e) (e.type==SDL_JOYBUTTONDOWN && e.jbutton.button==BTN_A)
 #define BUTTON_B(e) (e.type==SDL_JOYBUTTONDOWN && e.jbutton.button==BTN_B)
 
-// ─── Colors (R,G,B,A) ─────────────────────────────────────
-// Background
-#define C_BG       { 10,  11,  16, 255}    // Dark Tech #0a0b10
-#define C_PANEL    { 15,  20,  30, 255}    // Panel #0f141e
-#define C_BORDER   { 0,  120, 160, 255}    // Border #0078a0
+// ─── Colors (RGBA) ──────────────────────────────────────────
+struct RGBA { Uint8 r, g, b, a; };
 
-// Neon
-#define C_CYAN     { 0, 240, 255, 255}    // #00f0ff
-#define C_YELLOW   {252, 226,   5, 255}    // #fce205
-#define C_PINK     {255,   0,  60, 255}    // #ff003c
-#define C_GREEN    { 0, 255, 128, 255}    // #00ff80
-#define C_RED      {255,  50,  50, 255}    // #ff3232
-#define C_WHITE    {230, 230, 250, 255}    // #e6e6fa
-#define C_DIM      { 80,  90, 110, 255}    // dimmed
-#define C_TICKER_BG { 10, 12,  20, 255}   // ticker background
+namespace Palette {
+    constexpr RGBA BG_VOID          {0x0A, 0x0E, 0x17, 255};
+    constexpr RGBA BG_GRID          {0x12, 0x1A, 0x2C, 102};   // ~40%
+    constexpr RGBA PANEL_FILL       {0x0F, 0x15, 0x24, 217};   // ~85%
+    constexpr RGBA PANEL_FILL_FOCUS {0x14, 0x1C, 0x33, 235};   // ~92%
+    constexpr RGBA BORDER_DIM       {0x2A, 0x35, 0x50, 255};
+    constexpr RGBA BORDER_HEADER    {0x1C, 0x25, 0x40, 255};
+    constexpr RGBA NEON_CYAN        {0x00, 0xF0, 0xFF, 255};
+    constexpr RGBA NEON_AMBER       {0xFF, 0xB0, 0x00, 255};
+    constexpr RGBA NEON_MAGENTA     {0xFF, 0x2F, 0xD0, 255};
+    constexpr RGBA NEON_GREEN       {0x39, 0xFF, 0x88, 255};
+    constexpr RGBA ALERT_RED        {0xFF, 0x3B, 0x5C, 255};
+    constexpr RGBA TEXT_PRIMARY     {0xE8, 0xF1, 0xFF, 255};
+    constexpr RGBA TEXT_SECONDARY   {0x7C, 0x8D, 0xA6, 255};
+    constexpr RGBA TEXT_DIM         {0x46, 0x52, 0x72, 255};
+    constexpr RGBA OVERLAY_SCRIM    {0x00, 0x00, 0x00, 178};   // ~70%
+}

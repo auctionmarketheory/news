@@ -13,9 +13,11 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 #include <unordered_map>
+#include <algorithm>
 
 // ─── Global App State ─────────────────────────────────────
-enum AppState { STATE_LOADING, STATE_DISPLAY, STATE_ERROR };
+enum StateFlag { STATE_LOADING, STATE_DISPLAY, STATE_ERROR };
+enum class FocusTarget { WEATHER, MARKET, TICKER };
 
 struct WeatherData {
     char city[64];
@@ -41,15 +43,21 @@ struct NewsItem {
 };
 
 struct App {
-    AppState    state;
+    StateFlag   state;
     WeatherData weather;
     GoldData    gold;
     NewsItem    news[10];
     int         newsCount;
-    int         tickerX;
     Uint32      lastFetch;
     bool        quit;
+    
+    // UI State
+    FocusTarget focus = FocusTarget::WEATHER;
+    bool        modalOpen = false;
+    float       modalAnimT = 0.0f;
 } app;
+
+inline SDL_Color toSDLColor(RGBA c) { return {c.r, c.g, c.b, c.a}; }
 
 class CustomFont {
 public:
@@ -130,7 +138,7 @@ public:
         i += 1; return 0;
     }
 
-    void draw(SDL_Renderer* r, float x, float y, const std::string& txt, SDL_Color c) {
+    void draw(SDL_Renderer* r, float x, float y, const std::string& txt, RGBA c) {
         float cx = x;
         size_t i = 0;
         int base_y = y + ascent * scale;
@@ -174,27 +182,6 @@ CustomFont*   fontTitle = NULL;
 CustomFont*   fontNormal = NULL;
 CustomFont*   fontSmall = NULL;
 CustomFont*   fontTicker = NULL;
-
-void freeFonts() {
-    if (fontLarge) { fontLarge->freeCache(); delete fontLarge; }
-    if (fontTitle) { fontTitle->freeCache(); delete fontTitle; }
-    if (fontNormal) { fontNormal->freeCache(); delete fontNormal; }
-    if (fontSmall) { fontSmall->freeCache(); delete fontSmall; }
-    if (fontTicker) { fontTicker->freeCache(); delete fontTicker; }
-}
-
-// ─── Helpers ──────────────────────────────────────────────
-
-void DrawText(CustomFont* font, const char* text, int x, int y, SDL_Color color) {
-    if (!text || strlen(text) == 0 || !font) return;
-    font->draw(renderer, x, y, text, color);
-}
-
-void DrawRect(int x, int y, int w, int h, SDL_Color c) {
-    SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
-    SDL_Rect r = {x, y, w, h};
-    SDL_RenderFillRect(renderer, &r);
-}
 
 // ─── Data Fetching (Python via popen) ─────────────────────
 
@@ -287,137 +274,301 @@ void fetchNews() {
     }
 }
 
+// ─── Low-level draw helpers ─────────────────────────────────
+inline void setColor(SDL_Renderer* r, RGBA c) {
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+}
+
+inline void fillRect(SDL_Renderer* r, SDL_Rect rect, RGBA c) {
+    setColor(r, c);
+    SDL_RenderFillRect(r, &rect);
+}
+
+inline void strokeRect(SDL_Renderer* r, SDL_Rect rect, RGBA c, int thickness = 1) {
+    setColor(r, c);
+    for (int i = 0; i < thickness; ++i) {
+        SDL_Rect ring { rect.x - i, rect.y - i, rect.w + 2 * i, rect.h + 2 * i };
+        SDL_RenderDrawRect(r, &ring);
+    }
+}
+
+inline void drawGlow(SDL_Renderer* r, SDL_Rect base, RGBA color, int steps = 4) {
+    for (int i = steps; i >= 1; --i) {
+        RGBA layer = color;
+        float falloff[4] = {1.0f, 0.45f, 0.25f, 0.10f};
+        layer.a = static_cast<Uint8>(color.a * falloff[steps - i]);
+        SDL_Rect ring { base.x - i, base.y - i, base.w + 2 * i, base.h + 2 * i };
+        setColor(r, layer);
+        SDL_RenderDrawRect(r, &ring);
+    }
+}
+
+inline void drawCornerBracket(SDL_Renderer* r, int cx, int cy, int dx, int dy, RGBA color, int size = 6, int thickness = 2) {
+    setColor(r, color);
+    SDL_Rect horiz { cx, cy - (dy > 0 ? thickness - 1 : 0), size * dx > 0 ? size : -size, thickness };
+    SDL_Rect vert  { cx - (dx > 0 ? thickness - 1 : 0), cy, thickness, size * dy > 0 ? size : -size };
+    auto normalize = [](SDL_Rect rect) {
+        if (rect.w < 0) { rect.x += rect.w; rect.w = -rect.w; }
+        if (rect.h < 0) { rect.y += rect.h; rect.h = -rect.h; }
+        return rect;
+    };
+    horiz = normalize(horiz);
+    vert  = normalize(vert);
+    SDL_RenderFillRect(r, &horiz);
+    SDL_RenderFillRect(r, &vert);
+}
+
+inline void drawAllCornerBrackets(SDL_Renderer* r, SDL_Rect rect, RGBA color) {
+    int off = 3;
+    drawCornerBracket(r, rect.x - off, rect.y - off, 1, 1, color);
+    drawCornerBracket(r, rect.x + rect.w + off, rect.y - off, -1, 1, color);
+    drawCornerBracket(r, rect.x - off, rect.y + rect.h + off, 1, -1, color);
+    drawCornerBracket(r, rect.x + rect.w + off, rect.y + rect.h + off, -1, -1, color);
+}
+
+// ─── Panel model ───────────────────────────────────────────
+struct Panel {
+    SDL_Rect bounds;
+    std::string title;
+    RGBA accent;
+    bool focused = false;
+    bool siblingDimmed = false;
+
+    void draw(SDL_Renderer* r, CustomFont* titleFont) const {
+        if (focused) drawGlow(r, bounds, accent);
+        RGBA fill = focused ? Palette::PANEL_FILL_FOCUS : Palette::PANEL_FILL;
+        fillRect(r, bounds, fill);
+
+        RGBA borderColor = Palette::BORDER_DIM;
+        int borderThickness = 1;
+        if (focused) {
+            borderColor = accent;
+            borderThickness = 2;
+        } else if (siblingDimmed) {
+            borderColor.a = static_cast<Uint8>(Palette::BORDER_DIM.a * 0.6f);
+        }
+        strokeRect(r, bounds, borderColor, borderThickness);
+
+        SDL_Rect divider { bounds.x, bounds.y + 24, bounds.w, 1 };
+        fillRect(r, divider, Palette::BORDER_DIM);
+
+        if (focused) drawAllCornerBrackets(r, bounds, accent);
+
+        RGBA titleColor = focused ? RGBA{255,255,255,255} : siblingDimmed ? Palette::TEXT_SECONDARY : Palette::TEXT_PRIMARY;
+        titleFont->draw(r, bounds.x + 12, bounds.y + 4, title, titleColor);
+    }
+};
+
+// ─── Ticker Marquee ────────────────────────────────────────
+class TickerMarquee {
+public:
+    SDL_Texture* texture = nullptr;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    float scrollX = 0.0f;
+
+    void build(SDL_Renderer* renderer, CustomFont* font, const std::string& text, RGBA color) {
+        if (texture) SDL_DestroyTexture(texture);
+        textureWidth = font->getTextWidth(renderer, text);
+        if (textureWidth == 0) return;
+        textureHeight = 32; 
+
+        texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, textureWidth, textureHeight);
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+        
+        SDL_SetRenderTarget(renderer, texture);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+        SDL_RenderClear(renderer);
+        font->draw(renderer, 0, 4, text, color);
+        SDL_SetRenderTarget(renderer, nullptr);
+        
+        scrollX = 0;
+    }
+
+    void update(float dtSeconds, float pixelsPerSecond) {
+        scrollX += pixelsPerSecond * dtSeconds;
+        if (textureWidth > 0 && scrollX >= textureWidth) {
+            scrollX -= static_cast<float>(textureWidth);
+        }
+    }
+
+    void draw(SDL_Renderer* r, SDL_Rect stripBounds) const {
+        if (!texture) return;
+        SDL_RenderSetClipRect(r, &stripBounds);
+        int srcX = static_cast<int>(scrollX);
+        SDL_Rect dst1 { stripBounds.x - srcX, stripBounds.y + (stripBounds.h - textureHeight) / 2, textureWidth, textureHeight };
+        SDL_Rect dst2 { dst1.x + textureWidth, dst1.y, textureWidth, textureHeight };
+        SDL_RenderCopy(r, texture, nullptr, &dst1);
+        SDL_RenderCopy(r, texture, nullptr, &dst2);
+        SDL_RenderSetClipRect(r, nullptr);
+    }
+
+    ~TickerMarquee() { if (texture) SDL_DestroyTexture(texture); }
+};
+
+TickerMarquee globalTicker;
+
+// ─── Modal ───────────────────────────────────────────────
+void drawModal(SDL_Renderer* r) {
+    if (!app.modalOpen || app.modalAnimT <= 0.0f) return;
+
+    SDL_Rect full { 0, 0, 640, 480 };
+    RGBA scrim = Palette::OVERLAY_SCRIM;
+    scrim.a = static_cast<Uint8>(scrim.a * app.modalAnimT);
+    fillRect(r, full, scrim);
+
+    SDL_Rect bounds {60, 60, 520, 360};
+    float scale = 0.92f + 0.08f * app.modalAnimT;
+    SDL_Rect scaled {
+        static_cast<int>(bounds.x + bounds.w * (1 - scale) / 2),
+        static_cast<int>(bounds.y + bounds.h * (1 - scale) / 2),
+        static_cast<int>(bounds.w * scale),
+        static_cast<int>(bounds.h * scale)
+    };
+
+    SDL_Rect shadow { scaled.x + 4, scaled.y + 4, scaled.w, scaled.h };
+    fillRect(r, shadow, RGBA{0, 0, 0, static_cast<Uint8>(89 * app.modalAnimT)});
+
+    RGBA accent = Palette::NEON_MAGENTA;
+    drawGlow(r, scaled, accent);
+    RGBA fill = Palette::PANEL_FILL_FOCUS;
+    fill.a = static_cast<Uint8>(fill.a * app.modalAnimT);
+    fillRect(r, scaled, fill);
+    strokeRect(r, scaled, accent, 2);
+
+    SDL_Rect divider { scaled.x, scaled.y + 34, scaled.w, 1 };
+    fillRect(r, divider, Palette::BORDER_DIM);
+
+    fontTitle->draw(r, scaled.x + 16, scaled.y + 8, "LATEST NEWS (BBC)", Palette::TEXT_PRIMARY);
+
+    int yOffset = scaled.y + 50;
+    for (int i = 0; i < app.newsCount; i++) {
+        fontNormal->draw(r, scaled.x + 16, yOffset, std::string("> ") + app.news[i].headline, Palette::TEXT_PRIMARY);
+        yOffset += 45;
+        if (yOffset > scaled.y + scaled.h - 40) break;
+    }
+}
+
+// ─── Rendering Assembly ──────────────────────────────────
 void fetchAllData() {
     app.state = STATE_LOADING;
-    // Xóa bộ nhớ
-    DrawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, C_BG);
-    DrawText(fontTitle, "Đang tải dữ liệu...", SCREEN_WIDTH/2 - 80, SCREEN_HEIGHT/2, C_CYAN);
+    fillRect(renderer, SDL_Rect{0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, Palette::BG_VOID);
+    fontTitle->draw(renderer, SCREEN_WIDTH/2 - 80, SCREEN_HEIGHT/2, "Fetching Intel...", Palette::NEON_CYAN);
     SDL_RenderPresent(renderer);
     
     fetchWeather();
     fetchGold();
     fetchNews();
     
-    app.tickerX = SCREEN_WIDTH;
+    std::string tickerText = "";
+    if (app.newsCount > 0) {
+        for (int i=0; i<app.newsCount; i++) {
+            tickerText += "[ " + std::string(app.news[i].source) + " ] " + std::string(app.news[i].headline) + "   ///   ";
+        }
+    } else {
+        tickerText = "[ NO SIGNAL DETECTED ]";
+    }
+    globalTicker.build(renderer, fontTicker, tickerText, Palette::TEXT_PRIMARY);
+    
     app.lastFetch = SDL_GetTicks();
     app.state = STATE_DISPLAY;
 }
 
-// ─── Rendering ────────────────────────────────────────────
-
 void renderDisplay() {
-    // 1. Background (Dark Tech)
-    DrawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, C_BG);
+    // 1. Grid Background
+    fillRect(renderer, SDL_Rect{0, 0, 640, 480}, Palette::BG_VOID);
+    setColor(renderer, Palette::BG_GRID);
+    for (int x = 0; x < 640; x += 24) SDL_RenderDrawLine(renderer, x, 0, x, 480);
+    for (int y = 0; y < 480; y += 24) SDL_RenderDrawLine(renderer, 0, y, 640, y);
     
-    // 2. Borders & Corner Accents
-    SDL_SetRenderDrawColor(renderer, 0, 120, 160, 255); // C_BORDER
-    SDL_RenderDrawLine(renderer, 10, 10, 50, 10);
-    SDL_RenderDrawLine(renderer, 10, 10, 10, 50);
-    SDL_RenderDrawLine(renderer, SCREEN_WIDTH-10, 10, SCREEN_WIDTH-50, 10);
-    SDL_RenderDrawLine(renderer, SCREEN_WIDTH-10, 10, SCREEN_WIDTH-10, 50);
+    // 2. Header
+    fillRect(renderer, SDL_Rect{0, 0, SCREEN_WIDTH, 28}, Palette::BORDER_HEADER);
+    SDL_RenderDrawLine(renderer, 0, 28, SCREEN_WIDTH, 28);
+    fontNormal->draw(renderer, 12, 4, "[SYS] DASHBOARD_V2", Palette::NEON_CYAN);
     
-    // 3. Header Panel
-    DrawRect(0, 0, SCREEN_WIDTH, HEADER_H, C_PANEL);
-    SDL_RenderDrawLine(renderer, 0, HEADER_H, SCREEN_WIDTH, HEADER_H); // Border dưới header
+    time_t t = time(NULL); struct tm tm = *localtime(&t); char timeStr[64];
+    sprintf(timeStr, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    fontNormal->draw(renderer, SCREEN_WIDTH - 90, 4, timeStr, Palette::TEXT_PRIMARY);
     
-    DrawText(fontTitle, "[///] SYS.DASHBOARD_V2.0", 15, 8, C_CYAN);
+    // 3. Setup Panels
+    Panel weatherP = { {12, 44, 300, 360}, "[ENVIR_MONITOR] WEATHER", Palette::NEON_CYAN, false, false };
+    Panel marketP  = { {328, 44, 300, 360}, "[MKT_TRACKER] GC=F", Palette::NEON_AMBER, false, false };
+    Panel tickerP  = { {12, 416, 616, 32}, "[STREAM] GLOBAL NEWS", Palette::NEON_MAGENTA, false, false };
     
-    time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
-    char timeStr[64];
-    sprintf(timeStr, "T-%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-    DrawText(fontTitle, timeStr, SCREEN_WIDTH - 120, 8, C_YELLOW);
-
-    // 4. Weather Panel (Trái)
-    DrawText(fontNormal, ">> WEATHER_MODULE", 15, MAIN_TOP + 15, C_CYAN);
-    SDL_SetRenderDrawColor(renderer, 255, 0, 60, 255); // Pink Line
-    SDL_RenderDrawLine(renderer, 15, MAIN_TOP + 40, WEATHER_W - 15, MAIN_TOP + 40);
-
+    weatherP.focused = (app.focus == FocusTarget::WEATHER);
+    weatherP.siblingDimmed = (app.focus == FocusTarget::MARKET);
+    marketP.focused = (app.focus == FocusTarget::MARKET);
+    marketP.siblingDimmed = (app.focus == FocusTarget::WEATHER);
+    tickerP.focused = (app.focus == FocusTarget::TICKER);
+    
+    // 4. Draw Panels & Content
+    weatherP.draw(renderer, fontTitle);
     if (app.weather.valid) {
-        DrawText(fontTitle, app.weather.city, 15, MAIN_TOP + 55, C_WHITE);
-        char tempStr[32]; sprintf(tempStr, "%d C", app.weather.temp_c);
-        DrawText(fontLarge, tempStr, 15, MAIN_TOP + 85, C_YELLOW);
-        
-        char condStr[64]; sprintf(condStr, "[ %s ]", app.weather.condition);
-        DrawText(fontNormal, condStr, 15, MAIN_TOP + 140, C_PINK);
-        
-        char humStr[32]; sprintf(humStr, "HUMIDITY :: %d%%", app.weather.humidity);
-        DrawText(fontSmall, humStr, 15, MAIN_TOP + 175, C_CYAN);
-        
-        char windStr[32]; sprintf(windStr, "WIND     :: %d KM/H", app.weather.wind_kmh);
-        DrawText(fontSmall, windStr, 15, MAIN_TOP + 195, C_CYAN);
-    } else {
-        DrawText(fontNormal, "[ERR] OFFLINE", 15, MAIN_TOP + 65, C_RED);
+        fontLarge->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 40, std::to_string(app.weather.temp_c) + " C", Palette::TEXT_PRIMARY);
+        fontTitle->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 90, app.weather.condition, Palette::NEON_CYAN);
+        fontNormal->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 130, "HUMIDITY: " + std::to_string(app.weather.humidity) + "%", Palette::TEXT_SECONDARY);
+        fontNormal->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 160, "WIND: " + std::to_string(app.weather.wind_kmh) + " KM/H", Palette::TEXT_SECONDARY);
+        fontTitle->draw(renderer, weatherP.bounds.x + 16, weatherP.bounds.y + 220, "LOC: " + std::string(app.weather.city), Palette::TEXT_PRIMARY);
     }
     
-    // 5. Divider
-    SDL_SetRenderDrawColor(renderer, 0, 120, 160, 255);
-    SDL_RenderDrawLine(renderer, DIVIDER_X, MAIN_TOP + 10, DIVIDER_X, TICKER_TOP - 10);
-    DrawText(fontSmall, "+", DIVIDER_X - 4, MAIN_TOP + 15, C_CYAN);
-    DrawText(fontSmall, "+", DIVIDER_X - 4, TICKER_TOP - 30, C_CYAN);
-
-    // 6. Gold Panel (Phải)
-    DrawText(fontNormal, ">> MARKET_FEED [XAU/USD]", GOLD_X + 15, MAIN_TOP + 15, C_YELLOW);
-    SDL_SetRenderDrawColor(renderer, 0, 240, 255, 255); // Cyan Line
-    SDL_RenderDrawLine(renderer, GOLD_X + 15, MAIN_TOP + 40, SCREEN_WIDTH - 15, MAIN_TOP + 40);
-
+    marketP.draw(renderer, fontTitle);
     if (app.gold.valid) {
-        char priceStr[64]; sprintf(priceStr, "$ %.2f", app.gold.price);
-        SDL_Color pColor = app.gold.change >= 0 ? SDL_Color C_GREEN : SDL_Color C_RED;
-        DrawText(fontLarge, priceStr, GOLD_X + 15, MAIN_TOP + 70, pColor);
+        char priceStr[64]; sprintf(priceStr, "$%.2f", app.gold.price);
+        RGBA pColor = app.gold.change >= 0 ? Palette::NEON_GREEN : Palette::ALERT_RED;
+        fontLarge->draw(renderer, marketP.bounds.x + 16, marketP.bounds.y + 40, priceStr, pColor);
         
-        char changeStr[64]; 
-        sprintf(changeStr, "%s %+.2f  (%+.2f%%)", app.gold.change >= 0 ? "▲" : "▼", app.gold.change, app.gold.changePct);
-        DrawText(fontNormal, changeStr, GOLD_X + 15, MAIN_TOP + 125, pColor);
+        char changeStr[64]; sprintf(changeStr, "%s %+.2f (%+.2f%%)", app.gold.change >= 0 ? "+" : "", app.gold.change, app.gold.changePct);
+        fontTitle->draw(renderer, marketP.bounds.x + 16, marketP.bounds.y + 90, changeStr, pColor);
         
-        char hlStr[64]; sprintf(hlStr, "HIGH: %.2f   |   LOW: %.2f", app.gold.dayHigh, app.gold.dayLow);
-        DrawText(fontSmall, hlStr, GOLD_X + 15, MAIN_TOP + 160, C_DIM);
+        char hlStr[64]; sprintf(hlStr, "HIGH: %.2f  LOW: %.2f", app.gold.dayHigh, app.gold.dayLow);
+        fontNormal->draw(renderer, marketP.bounds.x + 16, marketP.bounds.y + 140, hlStr, Palette::TEXT_SECONDARY);
         
-        // Cyberpunk Sparkline
-        DrawRect(GOLD_X + 15, MAIN_TOP + 190, GOLD_W - 30, 2, C_DIM);
+        // Sparkline
+        fillRect(renderer, SDL_Rect{marketP.bounds.x + 16, marketP.bounds.y + 200, 268, 2}, Palette::BORDER_DIM);
         if (app.gold.dayHigh > app.gold.dayLow) {
             double ratio = (app.gold.price - app.gold.dayLow) / (app.gold.dayHigh - app.gold.dayLow);
-            int barW = (int)((GOLD_W - 30) * ratio);
-            DrawRect(GOLD_X + 15, MAIN_TOP + 189, barW, 4, pColor);
-            DrawRect(GOLD_X + 15 + barW, MAIN_TOP + 186, 4, 10, C_WHITE); // Cursor blip
+            int barW = (int)(268 * ratio);
+            fillRect(renderer, SDL_Rect{marketP.bounds.x + 16, marketP.bounds.y + 199, barW, 4}, pColor);
         }
-    } else {
-        DrawText(fontNormal, "[ERR] FEED_LOST", GOLD_X + 15, MAIN_TOP + 65, C_RED);
     }
+    
+    tickerP.draw(renderer, fontNormal); // Has title inside the render skeleton? Actually Ticker has no inner title in spec, just bounds. 
+    // We'll draw bounds and then clip content
+    globalTicker.draw(renderer, SDL_Rect{tickerP.bounds.x + 4, tickerP.bounds.y + 2, tickerP.bounds.w - 8, tickerP.bounds.h - 4});
+    
+    // Footer
+    fillRect(renderer, SDL_Rect{0, 456, 640, 24}, Palette::BORDER_HEADER);
+    SDL_RenderDrawLine(renderer, 0, 456, 640, 456);
+    std::string prompt = (app.focus == FocusTarget::TICKER) ? "[A] READ ARTICLE  [B] EXIT" : "[A] REFRESH  [B] EXIT";
+    fontNormal->draw(renderer, 12, 460, prompt, Palette::TEXT_SECONDARY);
+    
+    // Modal
+    drawModal(renderer);
+}
 
-    // 7. News Ticker
-    DrawRect(0, TICKER_TOP, SCREEN_WIDTH, TICKER_H, C_TICKER_BG);
-    SDL_SetRenderDrawColor(renderer, 0, 120, 160, 255);
-    SDL_RenderDrawLine(renderer, 0, TICKER_TOP, SCREEN_WIDTH, TICKER_TOP);
-    SDL_RenderDrawLine(renderer, 0, TICKER_TOP + TICKER_H, SCREEN_WIDTH, TICKER_TOP + TICKER_H);
-    
-    DrawText(fontSmall, "GLOBAL", 5, TICKER_TOP + 13, C_PINK);
-    DrawText(fontSmall, "INTEL ", 5, TICKER_TOP + 28, C_PINK);
-    
-    if (app.newsCount > 0) {
-        std::string tickerText = "";
-        for (int i=0; i<app.newsCount; i++) {
-            tickerText += "[ " + std::string(app.news[i].source) + " ] " + std::string(app.news[i].headline) + "   ///   ";
-        }
-        DrawText(fontTicker, tickerText.c_str(), app.tickerX, TICKER_TOP + 15, C_WHITE);
-        
-        int w = fontTicker->getTextWidth(renderer, tickerText);
-        app.tickerX -= NEWS_SCROLL_PX;
-        if (app.tickerX < -w) {
-            app.tickerX = SCREEN_WIDTH;
-        }
-    } else {
-        DrawText(fontTicker, "[ NO SIGNAL DETECTED ]", 70, TICKER_TOP + 15, C_DIM);
+void handleDpad(SDL_Keycode key) {
+    switch (app.focus) {
+        case FocusTarget::WEATHER:
+            if (key == SDLK_RIGHT) app.focus = FocusTarget::MARKET;
+            else if (key == SDLK_DOWN) app.focus = FocusTarget::TICKER;
+            break;
+        case FocusTarget::MARKET:
+            if (key == SDLK_LEFT) app.focus = FocusTarget::WEATHER;
+            else if (key == SDLK_DOWN) app.focus = FocusTarget::TICKER;
+            break;
+        case FocusTarget::TICKER:
+            if (key == SDLK_UP) app.focus = FocusTarget::WEATHER;
+            else if (key == SDLK_a || key == SDLK_RETURN) app.modalOpen = true;
+            break;
     }
-    
-    // 8. Footer
-    DrawRect(0, FOOTER_TOP, SCREEN_WIDTH, FOOTER_H, C_PANEL);
-    DrawText(fontSmall, "[A] FORCE_SYNC      [B] DISCONNECT", 15, FOOTER_TOP + 15, C_CYAN);
-    DrawText(fontSmall, "v2.0_NET", SCREEN_WIDTH - 80, FOOTER_TOP + 15, C_DIM);
+    if (app.modalOpen && (key == SDLK_b || key == SDLK_ESCAPE)) {
+        app.modalOpen = false;
+        app.modalAnimT = 0.0f;
+    }
 }
 
 // ─── Main ─────────────────────────────────────────────────
-
 int main(int argc, char* args[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0) return 1;
 
@@ -438,34 +589,55 @@ int main(int argc, char* args[]) {
     fontSmall  = new CustomFont(); fontSmall->load(renderer, FONT_NAME, FONT_SMALL);
     fontTicker = new CustomFont(); fontTicker->load(renderer, FONT_NAME, FONT_TICKER);
 
-    if (!fontLarge->info.data || !fontTitle->info.data || !fontNormal->info.data || !fontSmall->info.data || !fontTicker->info.data) {
-        printf("Error loading font\n");
-        return 1;
-    }
-
-    if (SDL_NumJoysticks() > 0) {
-        SDL_JoystickOpen(0);
-    }
+    if (SDL_NumJoysticks() > 0) SDL_JoystickOpen(0);
 
     fetchAllData();
 
     SDL_Event e;
+    Uint32 lastTime = SDL_GetTicks();
+    
     while (!app.quit) {
         Uint32 frameStart = SDL_GetTicks();
+        float dt = (frameStart - lastTime) / 1000.0f;
+        lastTime = frameStart;
 
         while (SDL_PollEvent(&e) != 0) {
             if (e.type == SDL_QUIT) app.quit = true;
-            if (BUTTON_B(e) || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)) {
-                app.quit = true;
+            
+            if (e.type == SDL_KEYDOWN) {
+                if (!app.modalOpen && e.key.keysym.sym == SDLK_RETURN) fetchAllData();
+                else handleDpad(e.key.keysym.sym);
             }
-            if (BUTTON_A(e) || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN)) {
-                fetchAllData();
+            if (e.type == SDL_JOYBUTTONDOWN) {
+                if (e.jbutton.button == BTN_B) {
+                    if (app.modalOpen) { app.modalOpen = false; app.modalAnimT = 0.0f; }
+                    else app.quit = true;
+                }
+                if (e.jbutton.button == BTN_A) {
+                    if (app.focus == FocusTarget::TICKER) app.modalOpen = true;
+                    else fetchAllData();
+                }
+            }
+            if (e.type == SDL_JOYHATMOTION) {
+                if (e.jhat.value == SDL_HAT_LEFT) handleDpad(SDLK_LEFT);
+                else if (e.jhat.value == SDL_HAT_RIGHT) handleDpad(SDLK_RIGHT);
+                else if (e.jhat.value == SDL_HAT_UP) handleDpad(SDLK_UP);
+                else if (e.jhat.value == SDL_HAT_DOWN) handleDpad(SDLK_DOWN);
             }
         }
 
-        if (SDL_GetTicks() - app.lastFetch > REFRESH_MS) {
+        if (SDL_GetTicks() - app.lastFetch > REFRESH_MS && !app.modalOpen) {
             fetchAllData();
         }
+
+        if (app.modalOpen) {
+            app.modalAnimT = std::min(1.0f, app.modalAnimT + dt / 0.12f);
+        } else {
+            app.modalAnimT = std::max(0.0f, app.modalAnimT - dt / 0.12f);
+        }
+
+        // Ticker speed 60px/s when unfocused, 20px/s when focused
+        globalTicker.update(dt, (app.focus == FocusTarget::TICKER && !app.modalOpen) ? 20.0f : 60.0f);
 
         renderDisplay();
         SDL_RenderPresent(renderer);
