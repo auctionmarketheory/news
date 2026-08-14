@@ -80,17 +80,15 @@ void DrawRect(int x, int y, int w, int h, SDL_Color c) {
 
 void fetchWeather() {
     app.weather.valid = false;
-    const char* py_script = 
-        "import urllib.request,json,sys;"
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;"
         "try:\n"
-        " r=urllib.request.urlopen('" URL_WEATHER "',timeout=8);"
+        " r=urllib.request.urlopen('%s',timeout=8);"
         " d=json.loads(r.read());"
         " cc=d['current_condition'][0];"
-        " print(f\"Ho Chi Minh|{cc['temp_C']}|{cc['humidity']}|{cc['lang_vi'][0]['value'] if 'lang_vi' in cc else cc['weatherDesc'][0]['value']}|{cc['windspeedKmph']}\");"
-        "except Exception as e: print('ERR', e)";
-        
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"%s\"", py_script);
+        " vi = cc['lang_vi'][0]['value'] if 'lang_vi' in cc else cc['weatherDesc'][0]['value'];"
+        " print(f'Ho Chi Minh|{cc[\\\"temp_C\\\"]}|{cc[\\\"humidity\\\"]}|{vi}|{cc[\\\"windspeedKmph\\\"]}');"
+        "except Exception as e: print('ERR', e)\"", URL_WEATHER);
     FILE* fp = popen(cmd, "r");
     if (fp) {
         char buffer[256];
@@ -111,11 +109,11 @@ void fetchWeather() {
 
 void fetchGold() {
     app.gold.valid = false;
-    const char* py_script = 
-        "import urllib.request,json,sys;"
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;"
         "try:\n"
         " ctx=__import__('ssl')._create_unverified_context();"
-        " r=urllib.request.urlopen(urllib.request.Request('" URL_GOLD "',headers={'User-Agent':'Mozilla/5.0'}),timeout=8,context=ctx);"
+        " r=urllib.request.urlopen(urllib.request.Request('%s',headers={'User-Agent':'Mozilla/5.0'}),timeout=8,context=ctx);"
         " d=json.loads(r.read())['chart']['result'][0]['meta'];"
         " p=d['regularMarketPrice'];"
         " pc=d.get('regularMarketChangePercent',0);"
@@ -123,10 +121,7 @@ void fetchGold() {
         " pl=d.get('regularMarketDayLow',0);"
         " ch=p-d.get('chartPreviousClose',p);"
         " print(f'{p}|{ch}|{pc}|{ph}|{pl}');"
-        "except Exception as e: print('ERR', e)";
-
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"%s\"", py_script);
+        "except Exception as e: print('ERR', e)\"", URL_GOLD);
     FILE* fp = popen(cmd, "r");
     if (fp) {
         char buffer[256];
@@ -146,16 +141,13 @@ void fetchGold() {
 
 void fetchNews() {
     app.newsCount = 0;
-    const char* py_script = 
-        "import urllib.request,re,sys;"
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,re,sys;"
         "try:\n"
-        " r=urllib.request.urlopen('" URL_NEWS "',timeout=8).read().decode('utf-8');"
-        " titles=re.findall(r'<title><!\\[CDATA\\[(.*?)\\]\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);"
-        " for t in titles[1:6]: print(t);" // Skip channel title
-        "except Exception as e: print('ERR', e)";
-
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"%s\"", py_script);
+        " r=urllib.request.urlopen('%s',timeout=8).read().decode('utf-8');"
+        " titles=re.findall(r'<title><!\\\\[CDATA\\\\[(.*?)\\\\]\\\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);"
+        " for t in titles[1:6]: print(t);"
+        "except Exception as e: print('ERR', e)\"", URL_NEWS);
     FILE* fp = popen(cmd, "r");
     if (fp) {
         char buffer[256];
@@ -259,7 +251,7 @@ void renderDisplay() {
         // Tạm tính độ rộng chuỗi (rất thô, có thể cải thiện nếu cần thiết)
         int w, h;
         TTF_SizeUTF8(fontTicker, tickerText.c_str(), &w, &h);
-        app.tickerX -= NEWS_SCROLL_SPEED;
+        app.tickerX -= NEWS_SCROLL_PX;
         if (app.tickerX < -w) {
             app.tickerX = SCREEN_WIDTH;
         }
