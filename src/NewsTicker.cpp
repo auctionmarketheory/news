@@ -549,10 +549,10 @@ void renderDisplay() {
     
     time_t t = time(NULL); struct tm tm = *localtime(&t); char timeStr[64];
     sprintf(timeStr, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-    fontNormal->draw(renderer, SCREEN_WIDTH - 90, 4, timeStr, Palette::TEXT_PRIMARY);
+    fontNormal->draw(renderer, SCREEN_WIDTH - 90, 4, timeStr, Palette::NEON_AMBER);
     
     // 3. Setup Panels
-    Panel weatherP = { {12, 44, 300, 360}, "THỜI TIẾT Tp.HCM", Palette::NEON_CYAN, false, false };
+    Panel weatherP = { {12, 44, 300, 360}, "THỜI TIẾT HÀ NỘI", Palette::NEON_CYAN, false, false };
     Panel marketP  = { {328, 44, 300, 360}, "THỊ TRƯỜNG (XAUUSD)", Palette::NEON_AMBER, false, false };
     Panel tickerP  = { {12, 416, 616, 32}, "", Palette::NEON_MAGENTA, false, false };
     
@@ -565,21 +565,14 @@ void renderDisplay() {
     // 4. Draw Weather
     weatherP.draw(renderer, fontTitle);
     if (app.weather.valid) {
-        RGBA themeColor = weatherP.focused ? Palette::NEON_CYAN : Palette::TEXT_DIM;
-        // Icon khổng lồ
-        fontWeatherIcon->draw(renderer, weatherP.bounds.x + 30, weatherP.bounds.y + 60, getWeatherIconUTF8(app.weather.weather_code), themeColor);
-        
-        fontLarge->draw(renderer, weatherP.bounds.x + 160, weatherP.bounds.y + 60, std::to_string(app.weather.temp_c) + " C", Palette::TEXT_PRIMARY);
-        fontTitle->draw(renderer, weatherP.bounds.x + 160, weatherP.bounds.y + 110, app.weather.condition, Palette::NEON_CYAN);
-        
-        // Thêm 2 đường line trang trí
-        fillRect(renderer, SDL_Rect{weatherP.bounds.x + 30, weatherP.bounds.y + 190, weatherP.bounds.w - 60, 1}, Palette::BORDER_DIM);
-        
-        fontNormal->draw(renderer, weatherP.bounds.x + 30, weatherP.bounds.y + 210, "ĐỘ ẨM:", Palette::TEXT_SECONDARY);
-        fontTitle->draw(renderer, weatherP.bounds.x + 150, weatherP.bounds.y + 205, std::to_string(app.weather.humidity) + "%", Palette::TEXT_PRIMARY);
-        
-        fontNormal->draw(renderer, weatherP.bounds.x + 30, weatherP.bounds.y + 250, "SỨC GIÓ:", Palette::TEXT_SECONDARY);
-        fontTitle->draw(renderer, weatherP.bounds.x + 150, weatherP.bounds.y + 245, std::to_string(app.weather.wind_kmh) + " KM/H", Palette::TEXT_PRIMARY);
+        fontWeatherIcon->draw(renderer, weatherP.bounds.x + 20, weatherP.bounds.y + 50, getWeatherIconUTF8(app.weather.weather_code), Palette::NEON_CYAN);
+        fontLarge->draw(renderer, weatherP.bounds.x + 155, weatherP.bounds.y + 55, std::to_string(app.weather.temp_c) + "°C", Palette::NEON_AMBER);
+        fontTitle->draw(renderer, weatherP.bounds.x + 155, weatherP.bounds.y + 110, app.weather.condition, Palette::NEON_MAGENTA);
+        fillRect(renderer, SDL_Rect{weatherP.bounds.x + 20, weatherP.bounds.y + 190, weatherP.bounds.w - 40, 1}, Palette::NEON_CYAN);
+        fontNormal->draw(renderer, weatherP.bounds.x + 20, weatherP.bounds.y + 210, "ĐỘ ẨM", Palette::TEXT_SECONDARY);
+        fontTitle->draw(renderer,  weatherP.bounds.x + 130, weatherP.bounds.y + 205, std::to_string(app.weather.humidity) + "%", Palette::NEON_CYAN);
+        fontNormal->draw(renderer, weatherP.bounds.x + 20, weatherP.bounds.y + 255, "SỨC GIÓ", Palette::TEXT_SECONDARY);
+        fontTitle->draw(renderer,  weatherP.bounds.x + 130, weatherP.bounds.y + 250, std::to_string(app.weather.wind_kmh) + " km/h", Palette::NEON_GREEN);
     }
     
     // 5. Draw Market (Candlestick Chart)
@@ -587,13 +580,21 @@ void renderDisplay() {
     if (app.gold.valid) {
         char priceStr[64]; sprintf(priceStr, "$%.2f", app.gold.price);
         RGBA pColor = app.gold.change >= 0 ? Palette::NEON_GREEN : Palette::ALERT_RED;
-        fontLarge->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 40, priceStr, pColor);
+        // Giá: Xanh lá (tăng) / Đỏ neon (giảm)
+        fontLarge->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 38, priceStr, pColor);
         
-        char changeStr[64]; sprintf(changeStr, "%s %+.2f (%+.2f%%)", app.gold.change >= 0 ? "+" : "", app.gold.change, app.gold.changePct);
-        fontNormal->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 85, changeStr, pColor);
+        // Thay đổi: cùng màu với xu hướng
+        char changeStr[64]; sprintf(changeStr, "%+.2f  (%+.2f%%)", app.gold.change, app.gold.changePct);
+        fontNormal->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 90, changeStr, pColor);
         
-        char hlStr[64]; sprintf(hlStr, "CAO: %.2f  THẤP: %.2f", app.gold.dayHigh, app.gold.dayLow);
-        fontSmall->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 110, hlStr, Palette::TEXT_SECONDARY);
+        // Label Cao/Thấp: phân biệt màu rõ
+        char hiStr[32], loStr[32];
+        sprintf(hiStr, "%.2f", app.gold.dayHigh);
+        sprintf(loStr, "%.2f", app.gold.dayLow);
+        fontSmall->draw(renderer, marketP.bounds.x + 20, marketP.bounds.y + 116, "CAO ", Palette::TEXT_SECONDARY);
+        fontSmall->draw(renderer, marketP.bounds.x + 55, marketP.bounds.y + 116, hiStr, Palette::NEON_GREEN);
+        fontSmall->draw(renderer, marketP.bounds.x + 140, marketP.bounds.y + 116, "THAP ", Palette::TEXT_SECONDARY);
+        fontSmall->draw(renderer, marketP.bounds.x + 180, marketP.bounds.y + 116, loStr, Palette::ALERT_RED);
         
         // Vẽ Candlestick
         if (app.gold.numPoints > 0) {
@@ -602,14 +603,13 @@ void renderDisplay() {
             int chartW = marketP.bounds.w - 40;
             int chartH = 200;
             
-            fillRect(renderer, SDL_Rect{chartX, chartY, chartW, chartH}, Palette::BG_VOID); // Backing
+            fillRect(renderer, SDL_Rect{chartX, chartY, chartW, chartH}, RGBA{0x02,0x00,0x10,255});
             strokeRect(renderer, SDL_Rect{chartX, chartY, chartW, chartH}, Palette::BORDER_DIM, 1);
             
-            // Tìm min max cục bộ của nến
             double locMin = app.gold.chartPoints[0].low;
             double locMax = app.gold.chartPoints[0].high;
             for (int i=0; i<app.gold.numPoints; i++) {
-                if (app.gold.chartPoints[i].low < locMin) locMin = app.gold.chartPoints[i].low;
+                if (app.gold.chartPoints[i].low  < locMin) locMin = app.gold.chartPoints[i].low;
                 if (app.gold.chartPoints[i].high > locMax) locMax = app.gold.chartPoints[i].high;
             }
             if (locMax - locMin < 0.1) { locMax += 1; locMin -= 1; }
@@ -622,18 +622,15 @@ void renderDisplay() {
                 Candle c = app.gold.chartPoints[i];
                 RGBA cColor = (c.close >= c.open) ? Palette::NEON_GREEN : Palette::ALERT_RED;
                 setColor(renderer, cColor);
-                
                 int cx = chartX + (int)(i * candleSpacing) + (int)(candleSpacing/2);
-                int cy_high = chartY + chartH - (int)((c.high - locMin) / (locMax - locMin) * chartH);
-                int cy_low  = chartY + chartH - (int)((c.low - locMin) / (locMax - locMin) * chartH);
-                SDL_RenderDrawLine(renderer, cx, cy_high, cx, cy_low); // Râu nến
-                
-                int cy_open = chartY + chartH - (int)((c.open - locMin) / (locMax - locMin) * chartH);
+                int cy_high  = chartY + chartH - (int)((c.high  - locMin) / (locMax - locMin) * chartH);
+                int cy_low   = chartY + chartH - (int)((c.low   - locMin) / (locMax - locMin) * chartH);
+                SDL_RenderDrawLine(renderer, cx, cy_high, cx, cy_low);
+                int cy_open  = chartY + chartH - (int)((c.open  - locMin) / (locMax - locMin) * chartH);
                 int cy_close = chartY + chartH - (int)((c.close - locMin) / (locMax - locMin) * chartH);
                 int bodyY = std::min(cy_open, cy_close);
                 int bodyH = std::abs(cy_open - cy_close);
                 if (bodyH == 0) bodyH = 1;
-                
                 SDL_Rect body = { cx - (int)(candleW/2), bodyY, (int)candleW, bodyH };
                 SDL_RenderFillRect(renderer, &body);
             }
@@ -643,8 +640,8 @@ void renderDisplay() {
     // 6. Draw Ticker (Clipped)
     tickerP.draw(renderer, fontTitle);
     
-    // Tiêu đề Ticker cố định (Không cuộn)
-    RGBA tColor = tickerP.focused ? Palette::TEXT_PRIMARY : Palette::TEXT_SECONDARY;
+    // Tiêu đề Ticker cố định: MAGENTA HOT PINK
+    RGBA tColor = tickerP.focused ? Palette::NEON_MAGENTA : Palette::TEXT_SECONDARY;
     fontNormal->draw(renderer, tickerP.bounds.x + 12, tickerP.bounds.y + 4, "[STREAM] TIN TỨC", tColor);
     
     // Khối clip để chữ không đè vào tiêu đề (Tiêu đề dài khoảng 180px)
@@ -760,6 +757,13 @@ int main(int argc, char* args[]) {
                 else if (e.jhat.value == SDL_HAT_RIGHT) handleDpad(SDLK_RIGHT);
                 else if (e.jhat.value == SDL_HAT_UP) handleDpad(SDLK_UP);
                 else if (e.jhat.value == SDL_HAT_DOWN) handleDpad(SDLK_DOWN);
+            }
+            // BUTTONS 8-11 (D-Pad as Buttons on R36S Firmware C)
+            if (e.type == SDL_JOYBUTTONDOWN) {
+                if (e.jbutton.button == BTN_DPAD_UP)    handleDpad(SDLK_UP);
+                if (e.jbutton.button == BTN_DPAD_DOWN)  handleDpad(SDLK_DOWN);
+                if (e.jbutton.button == BTN_DPAD_LEFT)  handleDpad(SDLK_LEFT);
+                if (e.jbutton.button == BTN_DPAD_RIGHT) handleDpad(SDLK_RIGHT);
             }
             // AXIS (D-Pad as Analog Axis on R36S)
             if (e.type == SDL_JOYAXISMOTION) {

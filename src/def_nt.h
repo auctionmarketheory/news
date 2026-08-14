@@ -33,15 +33,21 @@
 #define NEWS_SCROLL_PX   1         // px/frame ticker cuộn
 
 // ─── API URLs ─────────────────────────────────────────────
-#define URL_WEATHER "https://api.open-meteo.com/v1/forecast?latitude=10.8231&longitude=106.6297&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+#define URL_WEATHER "https://api.open-meteo.com/v1/forecast?latitude=21.0285&longitude=105.8542&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
 #define URL_GOLD    "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d"
 #define URL_NEWS    "http://feeds.bbci.co.uk/news/world/rss.xml"
 
 // ─── Joystick Buttons (R36S layout) ──────────────────────
-#define BTN_A  0   // Confirm / Refresh
+// Firmware A/B: D-Pad = Hat
+#define BTN_A  0   // Confirm / Refresh  
 #define BTN_B  1   // Back / Exit
 #define BTN_X  2
 #define BTN_Y  3
+// Firmware C: D-Pad = Buttons
+#define BTN_DPAD_UP    8
+#define BTN_DPAD_DOWN  9
+#define BTN_DPAD_LEFT  10
+#define BTN_DPAD_RIGHT 11
 
 #define BUTTON_A(e) (e.type==SDL_JOYBUTTONDOWN && e.jbutton.button==BTN_A)
 #define BUTTON_B(e) (e.type==SDL_JOYBUTTONDOWN && e.jbutton.button==BTN_B)
