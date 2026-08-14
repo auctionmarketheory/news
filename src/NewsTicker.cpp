@@ -207,7 +207,7 @@ void fetchWeather() {
         " d=json.loads(r.read());"
         " cc=d['current_condition'][0];"
         " vi = cc['lang_vi'][0]['value'] if 'lang_vi' in cc else cc['weatherDesc'][0]['value'];"
-        " print(f'Ho Chi Minh|{cc[\\\"temp_C\\\"]}|{cc[\\\"humidity\\\"]}|{vi}|{cc[\\\"windspeedKmph\\\"]}');"
+        " print(f'Ho Chi Minh|{cc[\\\"temp_C\\\"]}|{cc[\\\"humidity\\\"]}|{vi}|{cc[\\\"windspeedKmph\\\"]}');\n"
         "except Exception as e: print('ERR', e)\"", URL_WEATHER);
     FILE* fp = popen(cmd, "r");
     if (fp) {
@@ -240,7 +240,7 @@ void fetchGold() {
         " ph=d.get('regularMarketDayHigh',0);"
         " pl=d.get('regularMarketDayLow',0);"
         " ch=p-d.get('chartPreviousClose',p);"
-        " print(f'{p}|{ch}|{pc}|{ph}|{pl}');"
+        " print(f'{p}|{ch}|{pc}|{ph}|{pl}');\n"
         "except Exception as e: print('ERR', e)\"", URL_GOLD);
     FILE* fp = popen(cmd, "r");
     if (fp) {
@@ -266,7 +266,7 @@ void fetchNews() {
         "try:\n"
         " r=urllib.request.urlopen('%s',timeout=8).read().decode('utf-8');"
         " titles=re.findall(r'<title><!\\\\[CDATA\\\\[(.*?)\\\\]\\\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);"
-        " for t in titles[1:6]: print(t);"
+        " for t in titles[1:6]: print(t);\n"
         "except Exception as e: print('ERR', e)\"", URL_NEWS);
     FILE* fp = popen(cmd, "r");
     if (fp) {
