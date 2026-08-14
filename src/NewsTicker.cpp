@@ -175,6 +175,14 @@ CustomFont*   fontNormal = NULL;
 CustomFont*   fontSmall = NULL;
 CustomFont*   fontTicker = NULL;
 
+void freeFonts() {
+    if (fontLarge) { fontLarge->freeCache(); delete fontLarge; }
+    if (fontTitle) { fontTitle->freeCache(); delete fontTitle; }
+    if (fontNormal) { fontNormal->freeCache(); delete fontNormal; }
+    if (fontSmall) { fontSmall->freeCache(); delete fontSmall; }
+    if (fontTicker) { fontTicker->freeCache(); delete fontTicker; }
+}
+
 // ─── Helpers ──────────────────────────────────────────────
 
 void DrawText(CustomFont* font, const char* text, int x, int y, SDL_Color color) {
@@ -379,7 +387,6 @@ void renderDisplay() {
 
 int main(int argc, char* args[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0) return 1;
-    if (TTF_Init() == -1) return 1;
 
     Uint32 flags = 0;
 #if FULLSCREEN
@@ -392,14 +399,14 @@ int main(int argc, char* args[]) {
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) return 1;
 
-    fontLarge  = TTF_OpenFont(FONT_NAME, FONT_LARGE);
-    fontTitle  = TTF_OpenFont(FONT_NAME, FONT_TITLE);
-    fontNormal = TTF_OpenFont(FONT_NAME, FONT_NORMAL);
-    fontSmall  = TTF_OpenFont(FONT_NAME, FONT_SMALL);
-    fontTicker = TTF_OpenFont(FONT_NAME, FONT_TICKER);
+    fontLarge  = new CustomFont(); fontLarge->load(renderer, FONT_NAME, FONT_LARGE);
+    fontTitle  = new CustomFont(); fontTitle->load(renderer, FONT_NAME, FONT_TITLE);
+    fontNormal = new CustomFont(); fontNormal->load(renderer, FONT_NAME, FONT_NORMAL);
+    fontSmall  = new CustomFont(); fontSmall->load(renderer, FONT_NAME, FONT_SMALL);
+    fontTicker = new CustomFont(); fontTicker->load(renderer, FONT_NAME, FONT_TICKER);
 
-    if (!fontLarge || !fontTitle || !fontNormal || !fontSmall || !fontTicker) {
-        printf("Error loading font: %s\n", TTF_GetError());
+    if (!fontLarge->info.data || !fontTitle->info.data || !fontNormal->info.data || !fontSmall->info.data || !fontTicker->info.data) {
+        printf("Error loading font\n");
         return 1;
     }
 
