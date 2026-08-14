@@ -33,7 +33,7 @@
 #define NEWS_SCROLL_PX   1         // px/frame ticker cuộn
 
 // ─── API URLs ─────────────────────────────────────────────
-#define URL_WEATHER "https://wttr.in/Ho+Chi+Minh?format=j1"
+#define URL_WEATHER "https://wttr.in/Hanoi?format=j1"
 #define URL_GOLD    "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d"
 #define URL_NEWS    "http://feeds.bbci.co.uk/news/world/rss.xml"
 
