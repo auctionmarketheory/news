@@ -32,3 +32,4 @@ jobs:
           path: |
             App_NewsTicker
             res/
+            NewsTicker.sh
