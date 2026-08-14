@@ -33,7 +33,7 @@
 #define NEWS_SCROLL_PX   1         // px/frame ticker cuộn
 
 // ─── API URLs ─────────────────────────────────────────────
-#define URL_WEATHER "https://api.open-meteo.com/v1/forecast?latitude=21.0285&longitude=105.8542&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+#define URL_WEATHER "https://api.open-meteo.com/v1/forecast?latitude=10.8231&longitude=106.6297&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
 #define URL_GOLD    "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d"
 #define URL_NEWS    "http://feeds.bbci.co.uk/news/world/rss.xml"
 
@@ -50,19 +50,22 @@
 struct RGBA { Uint8 r, g, b, a; };
 
 namespace Palette {
-    constexpr RGBA BG_VOID          {0x0A, 0x0E, 0x17, 255};
-    constexpr RGBA BG_GRID          {0x12, 0x1A, 0x2C, 102};   // ~40%
-    constexpr RGBA PANEL_FILL       {0x0F, 0x15, 0x24, 217};   // ~85%
-    constexpr RGBA PANEL_FILL_FOCUS {0x14, 0x1C, 0x33, 235};   // ~92%
-    constexpr RGBA BORDER_DIM       {0x2A, 0x35, 0x50, 255};
-    constexpr RGBA BORDER_HEADER    {0x1C, 0x25, 0x40, 255};
-    constexpr RGBA NEON_CYAN        {0x00, 0xF0, 0xFF, 255};
-    constexpr RGBA NEON_AMBER       {0xFF, 0xB0, 0x00, 255};
-    constexpr RGBA NEON_MAGENTA     {0xFF, 0x2F, 0xD0, 255};
-    constexpr RGBA NEON_GREEN       {0x39, 0xFF, 0x88, 255};
-    constexpr RGBA ALERT_RED        {0xFF, 0x3B, 0x5C, 255};
-    constexpr RGBA TEXT_PRIMARY     {0xE8, 0xF1, 0xFF, 255};
-    constexpr RGBA TEXT_SECONDARY   {0x7C, 0x8D, 0xA6, 255};
-    constexpr RGBA TEXT_DIM         {0x46, 0x52, 0x72, 255};
-    constexpr RGBA OVERLAY_SCRIM    {0x00, 0x00, 0x00, 178};   // ~70%
+    // --- Cyberpunk Dark Theme ---
+    constexpr RGBA BG_VOID          {0x02, 0x02, 0x08, 255};   // Black void
+    constexpr RGBA BG_GRID          {0x00, 0xFF, 0xE0, 18};    // Cyan ghost grid ~7%
+    constexpr RGBA PANEL_FILL       {0x08, 0x06, 0x18, 230};   // Deep purple-black
+    constexpr RGBA PANEL_FILL_FOCUS {0x10, 0x06, 0x28, 245};   // Brighter deep purple
+    constexpr RGBA BORDER_DIM       {0x28, 0x18, 0x55, 255};   // Purple dim border
+    constexpr RGBA BORDER_HEADER    {0x00, 0xE5, 0xFF, 60};    // Faint cyan header bar
+    // --- Neon Accents ---
+    constexpr RGBA NEON_CYAN        {0x00, 0xFF, 0xE0, 255};   // Electric cyan
+    constexpr RGBA NEON_AMBER       {0xFF, 0xC4, 0x00, 255};   // Pure gold
+    constexpr RGBA NEON_MAGENTA     {0xFF, 0x00, 0xA8, 255};   // Hot pink
+    constexpr RGBA NEON_GREEN       {0x00, 0xFF, 0x87, 255};   // Acid green
+    constexpr RGBA ALERT_RED        {0xFF, 0x1A, 0x45, 255};   // Vivid red
+    // --- Text ---
+    constexpr RGBA TEXT_PRIMARY     {0xF0, 0xFF, 0xFC, 255};   // Near-white with cyan tint
+    constexpr RGBA TEXT_SECONDARY   {0x00, 0xD4, 0xC8, 200};   // Dim cyan
+    constexpr RGBA TEXT_DIM         {0x30, 0x28, 0x60, 255};   // Faded purple
+    constexpr RGBA OVERLAY_SCRIM    {0x02, 0x00, 0x10, 210};   // ~82% deep purple-black
 }

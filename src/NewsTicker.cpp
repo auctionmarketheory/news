@@ -545,7 +545,7 @@ void renderDisplay() {
     // 2. Header
     fillRect(renderer, SDL_Rect{0, 0, SCREEN_WIDTH, 28}, Palette::BORDER_HEADER);
     SDL_RenderDrawLine(renderer, 0, 28, SCREEN_WIDTH, 28);
-    fontNormal->draw(renderer, 12, 4, "[SYS] NewsTicker v3", Palette::NEON_CYAN);
+    fontNormal->draw(renderer, 12, 4, "NewsTicker", Palette::NEON_CYAN);
     
     time_t t = time(NULL); struct tm tm = *localtime(&t); char timeStr[64];
     sprintf(timeStr, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
@@ -754,11 +754,29 @@ int main(int argc, char* args[]) {
                     } else fetchAllData();
                 }
             }
+            // HAT (D-Pad as Hat on some firmware)
             if (e.type == SDL_JOYHATMOTION) {
                 if (e.jhat.value == SDL_HAT_LEFT) handleDpad(SDLK_LEFT);
                 else if (e.jhat.value == SDL_HAT_RIGHT) handleDpad(SDLK_RIGHT);
                 else if (e.jhat.value == SDL_HAT_UP) handleDpad(SDLK_UP);
                 else if (e.jhat.value == SDL_HAT_DOWN) handleDpad(SDLK_DOWN);
+            }
+            // AXIS (D-Pad as Analog Axis on R36S)
+            if (e.type == SDL_JOYAXISMOTION) {
+                static bool axisActive[4] = {false, false, false, false};
+                int axis = e.jaxis.axis;
+                Sint16 val = e.jaxis.value;
+                const Sint16 DEAD = 8000;
+                if (axis == 0) { // Horizontal
+                    if (val < -DEAD && !axisActive[0]) { handleDpad(SDLK_LEFT);  axisActive[0] = true; }
+                    else if (val > DEAD && !axisActive[1]) { handleDpad(SDLK_RIGHT); axisActive[1] = true; }
+                    else if (abs(val) <= DEAD) { axisActive[0] = false; axisActive[1] = false; }
+                }
+                if (axis == 1) { // Vertical
+                    if (val < -DEAD && !axisActive[2]) { handleDpad(SDLK_UP);    axisActive[2] = true; }
+                    else if (val > DEAD && !axisActive[3]) { handleDpad(SDLK_DOWN);  axisActive[3] = true; }
+                    else if (abs(val) <= DEAD) { axisActive[2] = false; axisActive[3] = false; }
+                }
             }
         }
 
