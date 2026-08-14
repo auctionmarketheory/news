@@ -11,9 +11,13 @@
 #include "def_nt.h"
 
 // --- FIX Mismatch ABI của libSDL2_ttf trên máy R36S ---
-extern "C" Sint64 SDL_RWtell(SDL_RWops *context) {
-    if (!context || !context->seek) return -1;
-    return context->seek(context, 0, RW_SEEK_CUR);
+extern "C" {
+    Sint64 SDL_RWsize(SDL_RWops *context) { return context ? context->size(context) : -1; }
+    Sint64 SDL_RWseek(SDL_RWops *context, Sint64 offset, int whence) { return context ? context->seek(context, offset, whence) : -1; }
+    Sint64 SDL_RWtell(SDL_RWops *context) { return context ? context->seek(context, 0, RW_SEEK_CUR) : -1; }
+    size_t SDL_RWread(SDL_RWops *context, void *ptr, size_t size, size_t maxnum) { return context ? context->read(context, ptr, size, maxnum) : 0; }
+    size_t SDL_RWwrite(SDL_RWops *context, const void *ptr, size_t size, size_t num) { return context ? context->write(context, ptr, size, num) : 0; }
+    int SDL_RWclose(SDL_RWops *context) { return context ? context->close(context) : -1; }
 }
 // --------------------------------------------------------
 
