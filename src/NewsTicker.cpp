@@ -204,10 +204,11 @@ void fetchWeather() {
     snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;\n"
         "try:\n"
         " r=urllib.request.urlopen('%s',timeout=8);"
-        " d=json.loads(r.read());"
-        " cc=d['current_condition'][0];"
-        " vi = cc['lang_vi'][0]['value'] if 'lang_vi' in cc else cc['weatherDesc'][0]['value'];"
-        " print(f'Ho Chi Minh|{cc[\\\"temp_C\\\"]}|{cc[\\\"humidity\\\"]}|{vi}|{cc[\\\"windspeedKmph\\\"]}');\n"
+        " d=json.loads(r.read())['current'];"
+        " wmap={0:'Clear',1:'Mostly Clear',2:'Partly Cloudy',3:'Overcast',45:'Fog',48:'Rime Fog',51:'Light Drizzle',53:'Drizzle',55:'Heavy Drizzle',61:'Light Rain',63:'Rain',65:'Heavy Rain',71:'Light Snow',73:'Snow',75:'Heavy Snow',95:'Thunderstorm'};"
+        " wc=d.get('weather_code',0);"
+        " vi=wmap.get(wc, 'Unknown');"
+        " print(f'Hanoi|{int(d[\\\"temperature_2m\\\"])}|{int(d[\\\"relative_humidity_2m\\\"])}|{vi}|{int(d[\\\"wind_speed_10m\\\"])}');\n"
         "except Exception as e: print('ERR', e)\"", URL_WEATHER);
     FILE* fp = popen(cmd, "r");
     if (fp) {
@@ -264,8 +265,8 @@ void fetchNews() {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,re,sys;\n"
         "try:\n"
-        " r=urllib.request.urlopen('%s',timeout=8).read().decode('utf-8');"
-        " titles=re.findall(r'<title><!\\\\[CDATA\\\\[(.*?)\\\\]\\\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);"
+        " r=urllib.request.urlopen('%s',timeout=8).read().decode('utf-8');\n"
+        " titles=re.findall(r'<title><\\!\\[CDATA\\[(.*?)\\]\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);\n"
         " for t in titles[1:6]: print(t);\n"
         "except Exception as e: print('ERR', e)\"", URL_NEWS);
     FILE* fp = popen(cmd, "r");
@@ -301,86 +302,114 @@ void fetchAllData() {
 // ─── Rendering ────────────────────────────────────────────
 
 void renderDisplay() {
-    // Background
+    // 1. Background (Dark Tech)
     DrawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, C_BG);
     
-    // Header
+    // 2. Borders & Corner Accents
+    SDL_SetRenderDrawColor(renderer, 0, 120, 160, 255); // C_BORDER
+    SDL_RenderDrawLine(renderer, 10, 10, 50, 10);
+    SDL_RenderDrawLine(renderer, 10, 10, 10, 50);
+    SDL_RenderDrawLine(renderer, SCREEN_WIDTH-10, 10, SCREEN_WIDTH-50, 10);
+    SDL_RenderDrawLine(renderer, SCREEN_WIDTH-10, 10, SCREEN_WIDTH-10, 50);
+    
+    // 3. Header Panel
     DrawRect(0, 0, SCREEN_WIDTH, HEADER_H, C_PANEL);
-    DrawText(fontTitle, "> CYBERPUNK DASHBOARD", 10, 8, C_CYAN);
+    SDL_RenderDrawLine(renderer, 0, HEADER_H, SCREEN_WIDTH, HEADER_H); // Border dưới header
+    
+    DrawText(fontTitle, "[///] SYS.DASHBOARD_V2.0", 15, 8, C_CYAN);
     
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
     char timeStr[64];
-    sprintf(timeStr, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-    DrawText(fontTitle, timeStr, SCREEN_WIDTH - 100, 8, C_CYAN);
+    sprintf(timeStr, "T-%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    DrawText(fontTitle, timeStr, SCREEN_WIDTH - 120, 8, C_YELLOW);
 
-    // Weather Panel
-    DrawRect(0, MAIN_TOP, WEATHER_W, MAIN_H, C_BG);
-    DrawText(fontNormal, "[ THỜI TIẾT ]", 10, MAIN_TOP + 10, C_CYAN);
+    // 4. Weather Panel (Trái)
+    DrawText(fontNormal, ">> WEATHER_MODULE", 15, MAIN_TOP + 15, C_CYAN);
+    SDL_SetRenderDrawColor(renderer, 255, 0, 60, 255); // Pink Line
+    SDL_RenderDrawLine(renderer, 15, MAIN_TOP + 40, WEATHER_W - 15, MAIN_TOP + 40);
+
     if (app.weather.valid) {
-        DrawText(fontTitle, app.weather.city, 10, MAIN_TOP + 40, C_WHITE);
-        char tempStr[32]; sprintf(tempStr, "%d°C", app.weather.temp_c);
-        DrawText(fontLarge, tempStr, 10, MAIN_TOP + 70, C_YELLOW);
-        DrawText(fontNormal, app.weather.condition, 10, MAIN_TOP + 120, C_WHITE);
-        char humStr[32]; sprintf(humStr, "Độ ẩm: %d%%", app.weather.humidity);
-        DrawText(fontSmall, humStr, 10, MAIN_TOP + 150, C_DIM);
-        char windStr[32]; sprintf(windStr, "Gió: %d km/h", app.weather.wind_kmh);
-        DrawText(fontSmall, windStr, 10, MAIN_TOP + 170, C_DIM);
+        DrawText(fontTitle, app.weather.city, 15, MAIN_TOP + 55, C_WHITE);
+        char tempStr[32]; sprintf(tempStr, "%d C", app.weather.temp_c);
+        DrawText(fontLarge, tempStr, 15, MAIN_TOP + 85, C_YELLOW);
+        
+        char condStr[64]; sprintf(condStr, "[ %s ]", app.weather.condition);
+        DrawText(fontNormal, condStr, 15, MAIN_TOP + 140, C_PINK);
+        
+        char humStr[32]; sprintf(humStr, "HUMIDITY :: %d%%", app.weather.humidity);
+        DrawText(fontSmall, humStr, 15, MAIN_TOP + 175, C_CYAN);
+        
+        char windStr[32]; sprintf(windStr, "WIND     :: %d KM/H", app.weather.wind_kmh);
+        DrawText(fontSmall, windStr, 15, MAIN_TOP + 195, C_CYAN);
     } else {
-        DrawText(fontNormal, "Lỗi tải thời tiết", 10, MAIN_TOP + 50, C_RED);
+        DrawText(fontNormal, "[ERR] OFFLINE", 15, MAIN_TOP + 65, C_RED);
     }
     
-    // Divider
-    DrawRect(DIVIDER_X, MAIN_TOP, 2, MAIN_H, C_BORDER);
+    // 5. Divider
+    SDL_SetRenderDrawColor(renderer, 0, 120, 160, 255);
+    SDL_RenderDrawLine(renderer, DIVIDER_X, MAIN_TOP + 10, DIVIDER_X, TICKER_TOP - 10);
+    DrawText(fontSmall, "+", DIVIDER_X - 4, MAIN_TOP + 15, C_CYAN);
+    DrawText(fontSmall, "+", DIVIDER_X - 4, TICKER_TOP - 30, C_CYAN);
 
-    // Gold Panel
-    DrawRect(GOLD_X, MAIN_TOP, GOLD_W, MAIN_H, C_BG);
-    DrawText(fontNormal, "$ XAUUSD (GOLD)", GOLD_X + 10, MAIN_TOP + 10, C_YELLOW);
+    // 6. Gold Panel (Phải)
+    DrawText(fontNormal, ">> MARKET_FEED [XAU/USD]", GOLD_X + 15, MAIN_TOP + 15, C_YELLOW);
+    SDL_SetRenderDrawColor(renderer, 0, 240, 255, 255); // Cyan Line
+    SDL_RenderDrawLine(renderer, GOLD_X + 15, MAIN_TOP + 40, SCREEN_WIDTH - 15, MAIN_TOP + 40);
+
     if (app.gold.valid) {
         char priceStr[64]; sprintf(priceStr, "$ %.2f", app.gold.price);
         SDL_Color pColor = app.gold.change >= 0 ? SDL_Color C_GREEN : SDL_Color C_RED;
-        DrawText(fontLarge, priceStr, GOLD_X + 10, MAIN_TOP + 60, pColor);
+        DrawText(fontLarge, priceStr, GOLD_X + 15, MAIN_TOP + 70, pColor);
         
         char changeStr[64]; 
-        sprintf(changeStr, "%s %+.2f (%+.2f%%)", app.gold.change >= 0 ? "+" : "-", app.gold.change, app.gold.changePct);
-        DrawText(fontNormal, changeStr, GOLD_X + 10, MAIN_TOP + 110, pColor);
+        sprintf(changeStr, "%s %+.2f  (%+.2f%%)", app.gold.change >= 0 ? "▲" : "▼", app.gold.change, app.gold.changePct);
+        DrawText(fontNormal, changeStr, GOLD_X + 15, MAIN_TOP + 125, pColor);
         
-        char hlStr[64]; sprintf(hlStr, "H: %.2f   L: %.2f", app.gold.dayHigh, app.gold.dayLow);
-        DrawText(fontSmall, hlStr, GOLD_X + 10, MAIN_TOP + 140, C_WHITE);
+        char hlStr[64]; sprintf(hlStr, "HIGH: %.2f   |   LOW: %.2f", app.gold.dayHigh, app.gold.dayLow);
+        DrawText(fontSmall, hlStr, GOLD_X + 15, MAIN_TOP + 160, C_DIM);
         
-        // Simple sparkline bar
-        DrawRect(GOLD_X + 10, MAIN_TOP + 170, GOLD_W - 20, 4, C_DIM);
+        // Cyberpunk Sparkline
+        DrawRect(GOLD_X + 15, MAIN_TOP + 190, GOLD_W - 30, 2, C_DIM);
         if (app.gold.dayHigh > app.gold.dayLow) {
             double ratio = (app.gold.price - app.gold.dayLow) / (app.gold.dayHigh - app.gold.dayLow);
-            int barW = (int)((GOLD_W - 20) * ratio);
-            DrawRect(GOLD_X + 10, MAIN_TOP + 170, barW, 4, pColor);
+            int barW = (int)((GOLD_W - 30) * ratio);
+            DrawRect(GOLD_X + 15, MAIN_TOP + 189, barW, 4, pColor);
+            DrawRect(GOLD_X + 15 + barW, MAIN_TOP + 186, 4, 10, C_WHITE); // Cursor blip
         }
     } else {
-        DrawText(fontNormal, "Lỗi tải giá vàng", GOLD_X + 10, MAIN_TOP + 50, C_RED);
+        DrawText(fontNormal, "[ERR] FEED_LOST", GOLD_X + 15, MAIN_TOP + 65, C_RED);
     }
 
-    // Ticker
+    // 7. News Ticker
     DrawRect(0, TICKER_TOP, SCREEN_WIDTH, TICKER_H, C_TICKER_BG);
+    SDL_SetRenderDrawColor(renderer, 0, 120, 160, 255);
+    SDL_RenderDrawLine(renderer, 0, TICKER_TOP, SCREEN_WIDTH, TICKER_TOP);
+    SDL_RenderDrawLine(renderer, 0, TICKER_TOP + TICKER_H, SCREEN_WIDTH, TICKER_TOP + TICKER_H);
+    
+    DrawText(fontSmall, "GLOBAL", 5, TICKER_TOP + 13, C_PINK);
+    DrawText(fontSmall, "INTEL ", 5, TICKER_TOP + 28, C_PINK);
+    
     if (app.newsCount > 0) {
         std::string tickerText = "";
         for (int i=0; i<app.newsCount; i++) {
-            tickerText += "▶ " + std::string(app.news[i].source) + ": " + std::string(app.news[i].headline) + "   ◈   ";
+            tickerText += "[ " + std::string(app.news[i].source) + " ] " + std::string(app.news[i].headline) + "   ///   ";
         }
-        DrawText(fontTicker, tickerText.c_str(), app.tickerX, TICKER_TOP + 12, C_WHITE);
+        DrawText(fontTicker, tickerText.c_str(), app.tickerX, TICKER_TOP + 15, C_WHITE);
         
-        // Tạm tính độ rộng chuỗi (rất thô, có thể cải thiện nếu cần thiết)
         int w = fontTicker->getTextWidth(renderer, tickerText);
         app.tickerX -= NEWS_SCROLL_PX;
         if (app.tickerX < -w) {
             app.tickerX = SCREEN_WIDTH;
         }
     } else {
-        DrawText(fontTicker, "Không có tin tức...", 10, TICKER_TOP + 12, C_DIM);
+        DrawText(fontTicker, "[ NO SIGNAL DETECTED ]", 70, TICKER_TOP + 15, C_DIM);
     }
     
-    // Footer
+    // 8. Footer
     DrawRect(0, FOOTER_TOP, SCREEN_WIDTH, FOOTER_H, C_PANEL);
-    DrawText(fontSmall, "[A] Làm mới    [B] Thoát", 10, FOOTER_TOP + 15, C_WHITE);
+    DrawText(fontSmall, "[A] FORCE_SYNC      [B] DISCONNECT", 15, FOOTER_TOP + 15, C_CYAN);
+    DrawText(fontSmall, "v2.0_NET", SCREEN_WIDTH - 80, FOOTER_TOP + 15, C_DIM);
 }
 
 // ─── Main ─────────────────────────────────────────────────
