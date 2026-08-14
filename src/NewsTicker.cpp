@@ -10,6 +10,13 @@
 #include <time.h>
 #include "def_nt.h"
 
+// --- FIX Mismatch ABI của libSDL2_ttf trên máy R36S ---
+extern "C" Sint64 SDL_RWtell(SDL_RWops *context) {
+    if (!context || !context->seek) return -1;
+    return context->seek(context, 0, RW_SEEK_CUR);
+}
+// --------------------------------------------------------
+
 // ─── Global App State ─────────────────────────────────────
 enum AppState { STATE_LOADING, STATE_DISPLAY, STATE_ERROR };
 
