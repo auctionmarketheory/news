@@ -201,7 +201,7 @@ void DrawRect(int x, int y, int w, int h, SDL_Color c) {
 void fetchWeather() {
     app.weather.valid = false;
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;"
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;\n"
         "try:\n"
         " r=urllib.request.urlopen('%s',timeout=8);"
         " d=json.loads(r.read());"
@@ -230,7 +230,7 @@ void fetchWeather() {
 void fetchGold() {
     app.gold.valid = false;
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;"
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,json,sys;\n"
         "try:\n"
         " ctx=__import__('ssl')._create_unverified_context();"
         " r=urllib.request.urlopen(urllib.request.Request('%s',headers={'User-Agent':'Mozilla/5.0'}),timeout=8,context=ctx);"
@@ -262,7 +262,7 @@ void fetchGold() {
 void fetchNews() {
     app.newsCount = 0;
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,re,sys;"
+    snprintf(cmd, sizeof(cmd), "python3 -c \"import urllib.request,re,sys;\n"
         "try:\n"
         " r=urllib.request.urlopen('%s',timeout=8).read().decode('utf-8');"
         " titles=re.findall(r'<title><!\\\\[CDATA\\\\[(.*?)\\\\]\\\\]></title>', r) or re.findall(r'<title>(.*?)</title>', r);"
@@ -306,7 +306,7 @@ void renderDisplay() {
     
     // Header
     DrawRect(0, 0, SCREEN_WIDTH, HEADER_H, C_PANEL);
-    DrawText(fontTitle, "◈ CYBERPUNK DASHBOARD", 10, 8, C_CYAN);
+    DrawText(fontTitle, "> CYBERPUNK DASHBOARD", 10, 8, C_CYAN);
     
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
@@ -316,7 +316,7 @@ void renderDisplay() {
 
     // Weather Panel
     DrawRect(0, MAIN_TOP, WEATHER_W, MAIN_H, C_BG);
-    DrawText(fontNormal, "⛅ THỜI TIẾT", 10, MAIN_TOP + 10, C_CYAN);
+    DrawText(fontNormal, "[ THỜI TIẾT ]", 10, MAIN_TOP + 10, C_CYAN);
     if (app.weather.valid) {
         DrawText(fontTitle, app.weather.city, 10, MAIN_TOP + 40, C_WHITE);
         char tempStr[32]; sprintf(tempStr, "%d°C", app.weather.temp_c);
@@ -335,14 +335,14 @@ void renderDisplay() {
 
     // Gold Panel
     DrawRect(GOLD_X, MAIN_TOP, GOLD_W, MAIN_H, C_BG);
-    DrawText(fontNormal, "💰 XAUUSD (GOLD)", GOLD_X + 10, MAIN_TOP + 10, C_YELLOW);
+    DrawText(fontNormal, "$ XAUUSD (GOLD)", GOLD_X + 10, MAIN_TOP + 10, C_YELLOW);
     if (app.gold.valid) {
         char priceStr[64]; sprintf(priceStr, "$ %.2f", app.gold.price);
         SDL_Color pColor = app.gold.change >= 0 ? SDL_Color C_GREEN : SDL_Color C_RED;
         DrawText(fontLarge, priceStr, GOLD_X + 10, MAIN_TOP + 60, pColor);
         
         char changeStr[64]; 
-        sprintf(changeStr, "%s %+.2f (%+.2f%%)", app.gold.change >= 0 ? "▲" : "▼", app.gold.change, app.gold.changePct);
+        sprintf(changeStr, "%s %+.2f (%+.2f%%)", app.gold.change >= 0 ? "+" : "-", app.gold.change, app.gold.changePct);
         DrawText(fontNormal, changeStr, GOLD_X + 10, MAIN_TOP + 110, pColor);
         
         char hlStr[64]; sprintf(hlStr, "H: %.2f   L: %.2f", app.gold.dayHigh, app.gold.dayLow);
