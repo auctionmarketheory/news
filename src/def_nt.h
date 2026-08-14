@@ -32,6 +32,11 @@
 #define REFRESH_MS       60000     // 60 giây tự động refresh
 #define NEWS_SCROLL_PX   1         // px/frame ticker cuộn
 
+// ─── API URLs ─────────────────────────────────────────────
+#define URL_WEATHER "https://wttr.in/Ho+Chi+Minh?format=j1"
+#define URL_GOLD    "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d"
+#define URL_NEWS    "http://feeds.bbci.co.uk/news/world/rss.xml"
+
 // ─── Joystick Buttons (R36S layout) ──────────────────────
 #define BTN_A  0   // Confirm / Refresh
 #define BTN_B  1   // Back / Exit
